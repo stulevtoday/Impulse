@@ -67,12 +67,14 @@ svg { width: 100vw; height: 100vh; display: block; }
 .dimmed .node.highlighted { opacity: 1; }
 .dimmed .link.highlighted { stroke-opacity: 0.6; }
 
-@keyframes ripple-glow {
-  0% { filter: brightness(1); }
-  50% { filter: brightness(2.2); }
-  100% { filter: brightness(1); }
+@keyframes ripple-in {
+  0% { opacity: 0.08; filter: brightness(1); }
+  40% { opacity: 1; filter: brightness(2); }
+  100% { opacity: 1; filter: brightness(1); }
 }
-.ripple { animation: ripple-glow 0.6s ease-out; }
+.ripple { animation: ripple-in 0.8s ease-out forwards; }
+.dimmed .node.highlighted { opacity: 0.08; }
+.dimmed .node.highlighted.rippled { opacity: 1; transition: none; }
 </style>
 </head>
 <body>
@@ -271,6 +273,7 @@ async function main() {
         setTimeout(() => {
           node.filter(n => ids.has(n.id))
             .classed("highlighted", true)
+            .classed("rippled", true)
             .select("circle")
             .classed("ripple", false)
             .each(function() { this.offsetWidth; })
@@ -303,24 +306,35 @@ async function main() {
     link.classed("highlighted", l => matched.has(l.source.id) || matched.has(l.target.id));
   });
 
+  const labelThreshold = nodes.length > 100 ? 10 : 6;
+  node.select("text").attr("font-size", d => d.radius > labelThreshold ? 11 : 0);
+
   const sim = d3.forceSimulation(nodes)
-    .force("link", d3.forceLink(links).id(d => d.id).distance(90))
-    .force("charge", d3.forceManyBody().strength(-280))
+    .force("link", d3.forceLink(links).id(d => d.id).distance(nodes.length > 200 ? 50 : 90))
+    .force("charge", d3.forceManyBody().strength(nodes.length > 200 ? -120 : -280).theta(0.9))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collision", d3.forceCollide().radius(d => d.radius + 5))
+    .force("collision", d3.forceCollide().radius(d => d.radius + 2).iterations(1))
+    .alphaDecay(nodes.length > 200 ? 0.05 : 0.0228)
     .on("tick", () => {
-      link.each(function(d) {
-        const dx = d.target.x - d.source.x;
-        const dy = d.target.y - d.source.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const tr = (d.target.radius || 6) + 4;
-        d3.select(this)
-          .attr("x1", d.source.x)
-          .attr("y1", d.source.y)
-          .attr("x2", d.target.x - (dx / dist) * tr)
-          .attr("y2", d.target.y - (dy / dist) * tr);
-      });
+      link
+        .attr("x1", d => d.source.x)
+        .attr("y1", d => d.source.y)
+        .attr("x2", d => {
+          const dx = d.target.x - d.source.x;
+          const dy = d.target.y - d.source.y;
+          const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+          return d.target.x - (dx/dist) * ((d.target.radius||6) + 4);
+        })
+        .attr("y2", d => {
+          const dx = d.target.x - d.source.x;
+          const dy = d.target.y - d.source.y;
+          const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+          return d.target.y - (dy/dist) * ((d.target.radius||6) + 4);
+        });
       node.attr("transform", d => "translate(" + d.x + "," + d.y + ")");
+    })
+    .on("end", () => {
+      node.select("text").attr("font-size", d => d.radius > 6 ? 11 : 0);
     });
 }
 
