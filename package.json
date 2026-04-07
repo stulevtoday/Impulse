@@ -1,37 +1,46 @@
 {
-  "name": "impulse",
+  "name": "impulse-analyzer",
   "version": "0.1.0",
-  "description": "Local daemon that builds a live dependency graph and answers: what breaks if I change X?",
+  "description": "Know what breaks before it breaks. Dependency graph + impact analysis for 5 languages.",
   "type": "module",
   "main": "dist/cli/index.js",
   "bin": {
     "impulse": "dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "action.yml",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/cli/index.js",
-    "impulse": "node dist/cli/index.js"
+    "impulse": "node dist/cli/index.js",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "dependency-graph",
     "impact-analysis",
     "tree-sitter",
-    "developer-tools"
+    "developer-tools",
+    "static-analysis",
+    "architecture"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stulevtoday/Impulse.git"
+  },
+  "homepage": "https://github.com/stulevtoday/Impulse",
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "commander": "^13.1.0",
     "fast-glob": "^3.3.3",
-    "tree-sitter": "^0.21.1",
-    "tree-sitter-c-sharp": "^0.23.1",
-    "tree-sitter-go": "^0.23.4",
-    "tree-sitter-python": "^0.21.0",
-    "tree-sitter-rust": "^0.21.0",
-    "tree-sitter-typescript": "^0.23.2"
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.25.10"
   },
   "devDependencies": {
     "@types/node": "^22.12.0",

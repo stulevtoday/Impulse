@@ -1,5 +1,4 @@
-import type Parser from "tree-sitter";
-import type { ParseResult } from "./parser.js";
+import { rootNode, type ParseResult, type SyntaxNode } from "./parser.js";
 import type { GraphNode, GraphEdge } from "./graph.js";
 import type { ExtractorContext, ExtractionResult } from "./types.js";
 import { dirname, join, relative } from "node:path";
@@ -20,13 +19,14 @@ export function extractPythonDependencies(
     name: parsed.filePath,
   });
 
-  visitPythonNode(parsed.tree.rootNode, parsed, ctx, fileId, nodes, edges);
+  if (!parsed.tree) return { nodes, edges };
+  visitPythonNode(rootNode(parsed.tree), parsed, ctx, fileId, nodes, edges);
 
   return { nodes, edges };
 }
 
 function visitPythonNode(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   fileId: string,
@@ -51,7 +51,7 @@ function visitPythonNode(
  * Handle: import foo, import foo.bar
  */
 function handlePythonImport(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   fileId: string,
@@ -81,7 +81,7 @@ function handlePythonImport(
  * Handle: from foo import bar, from . import utils, from ..models import User
  */
 function handlePythonFromImport(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   fileId: string,
