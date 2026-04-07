@@ -1,5 +1,4 @@
-import type Parser from "tree-sitter";
-import type { ParseResult } from "./parser.js";
+import { rootNode, type ParseResult, type SyntaxNode } from "./parser.js";
 import type { GraphNode, GraphEdge } from "./graph.js";
 import type { ExtractorContext, ExtractionResult } from "./types.js";
 import { join } from "node:path";
@@ -23,13 +22,14 @@ export function extractGoDependencies(
   });
 
   const modulePath = getGoModulePath(ctx.rootDir);
-  visitGoNode(parsed.tree.rootNode, parsed, ctx, modulePath, fileId, nodes, edges);
+  if (!parsed.tree) return { nodes, edges };
+  visitGoNode(rootNode(parsed.tree), parsed, ctx, modulePath, fileId, nodes, edges);
 
   return { nodes, edges };
 }
 
 function visitGoNode(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   modulePath: string | null,
@@ -53,7 +53,7 @@ interface ImportSpec {
 }
 
 function handleGoImports(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   ctx: ExtractorContext,
   modulePath: string | null,
   fileId: string,
@@ -107,10 +107,10 @@ function handleGoImports(
   }
 }
 
-function collectImportSpecs(node: Parser.SyntaxNode): ImportSpec[] {
+function collectImportSpecs(node: SyntaxNode): ImportSpec[] {
   const specs: ImportSpec[] = [];
 
-  function walk(n: Parser.SyntaxNode): void {
+  function walk(n: SyntaxNode): void {
     if (n.type === "import_spec") {
       const pathNode = n.children.find((c) =>
         c.type === "interpreted_string_literal" || c.type === "raw_string_literal",

@@ -1,40 +1,85 @@
-import Parser from "tree-sitter";
-import TypeScript from "tree-sitter-typescript";
-import Python from "tree-sitter-python";
-import Go from "tree-sitter-go";
-import Rust from "tree-sitter-rust";
-import CSharp from "tree-sitter-c-sharp";
+import { Parser, Language, type Node, type Tree } from "web-tree-sitter";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
+import { createRequire } from "node:module";
 
-const tsParser = new Parser();
-tsParser.setLanguage(TypeScript.typescript);
+export type SyntaxNode = Omit<
+  Node,
+  "children" | "namedChildren" | "parent"
+> & {
+  readonly children: SyntaxNode[];
+  readonly namedChildren: SyntaxNode[];
+  readonly parent: SyntaxNode | null;
+};
 
-const tsxParser = new Parser();
-tsxParser.setLanguage(TypeScript.tsx);
+export function rootNode(tree: Tree): SyntaxNode {
+  return tree.rootNode as unknown as SyntaxNode;
+}
 
-const pyParser = new Parser();
-pyParser.setLanguage(Python);
+export type { Tree };
 
-const goParser = new Parser();
-goParser.setLanguage(Go);
+const require = createRequire(import.meta.url);
 
-const rustParser = new Parser();
-rustParser.setLanguage(Rust);
+function wasmPath(name: string): string {
+  return require.resolve(`tree-sitter-wasms/out/${name}`);
+}
 
-const csharpParser = new Parser();
-csharpParser.setLanguage(CSharp);
-
-type Language = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp";
+type LanguageId = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp";
 
 export interface ParseResult {
   filePath: string;
-  tree: Parser.Tree;
+  tree: Tree | null;
   source: string;
-  language: Language;
+  language: LanguageId;
 }
 
-function getLanguage(filePath: string): Language | null {
+export interface ParseWarning {
+  filePath: string;
+  error: string;
+}
+
+const warnings: ParseWarning[] = [];
+
+export function getParseWarnings(): ParseWarning[] {
+  return [...warnings];
+}
+
+export function clearParseWarnings(): void {
+  warnings.length = 0;
+}
+
+const WASM_FILES: Record<Exclude<LanguageId, "csharp">, string> = {
+  typescript: "tree-sitter-typescript.wasm",
+  tsx: "tree-sitter-tsx.wasm",
+  python: "tree-sitter-python.wasm",
+  go: "tree-sitter-go.wasm",
+  rust: "tree-sitter-rust.wasm",
+};
+
+const parsers = new Map<string, Parser>();
+let initPromise: Promise<void> | null = null;
+
+async function ensureInit(): Promise<void> {
+  if (parsers.size > 0) return;
+  if (!initPromise) {
+    initPromise = doInit();
+  }
+  return initPromise;
+}
+
+async function doInit(): Promise<void> {
+  await Parser.init();
+
+  const entries = Object.entries(WASM_FILES) as [string, string][];
+  for (const [lang, file] of entries) {
+    const parser = new Parser();
+    const language = await Language.load(wasmPath(file));
+    parser.setLanguage(language);
+    parsers.set(lang, parser);
+  }
+}
+
+function getLanguage(filePath: string): LanguageId | null {
   const ext = extname(filePath).toLowerCase();
   switch (ext) {
     case ".ts":
@@ -62,30 +107,6 @@ function getLanguage(filePath: string): Language | null {
   }
 }
 
-const parserMap: Record<Language, Parser> = {
-  typescript: tsParser,
-  tsx: tsxParser,
-  python: pyParser,
-  go: goParser,
-  rust: rustParser,
-  csharp: csharpParser,
-};
-
-export interface ParseWarning {
-  filePath: string;
-  error: string;
-}
-
-const warnings: ParseWarning[] = [];
-
-export function getParseWarnings(): ParseWarning[] {
-  return [...warnings];
-}
-
-export function clearParseWarnings(): void {
-  warnings.length = 0;
-}
-
 export async function parseFile(
   rootDir: string,
   relativePath: string,
@@ -94,14 +115,18 @@ export async function parseFile(
   if (!language) return null;
 
   try {
+    await ensureInit();
     const fullPath = `${rootDir}/${relativePath}`;
     const source = await readFile(fullPath, "utf-8");
+
     if (language === "csharp") {
-      return { filePath: relativePath, tree: null as unknown as Parser.Tree, source, language };
+      return { filePath: relativePath, tree: null, source, language };
     }
 
-    const parser = parserMap[language];
+    const parser = parsers.get(language)!;
     const tree = parser.parse(source);
+    if (!tree) return null;
+
     return { filePath: relativePath, tree, source, language };
   } catch (err) {
     warnings.push({

@@ -1,5 +1,4 @@
-import type Parser from "tree-sitter";
-import type { ParseResult } from "./parser.js";
+import { rootNode, type ParseResult, type SyntaxNode } from "./parser.js";
 import type { GraphNode, GraphEdge } from "./graph.js";
 import type { ExtractorContext, ExtractionResult } from "./types.js";
 import { dirname, join } from "node:path";
@@ -20,13 +19,14 @@ export function extractRustDependencies(
   nodes.push({ id: fileId, kind: "file", filePath: parsed.filePath, name: parsed.filePath });
 
   const externCrates = getCargoDependencies(ctx.rootDir);
-  visitRustNode(parsed.tree.rootNode, parsed, ctx, externCrates, fileId, nodes, edges);
+  if (!parsed.tree) return { nodes, edges };
+  visitRustNode(rootNode(parsed.tree), parsed, ctx, externCrates, fileId, nodes, edges);
 
   return { nodes, edges };
 }
 
 function visitRustNode(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   externCrates: Set<string>,
@@ -61,7 +61,7 @@ function visitRustNode(
 }
 
 function handleModDecl(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   fileId: string,
@@ -97,7 +97,7 @@ function handleModDecl(
 }
 
 function handleUseDecl(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   externCrates: Set<string>,
@@ -151,10 +151,10 @@ function handleUseDecl(
  * Extract all use paths from a use_declaration AST node.
  * Handles simple uses, grouped uses, wildcards, and aliases.
  */
-function extractUsePaths(node: Parser.SyntaxNode): string[][] {
+function extractUsePaths(node: SyntaxNode): string[][] {
   const results: string[][] = [];
 
-  function walk(n: Parser.SyntaxNode, prefix: string[]): void {
+  function walk(n: SyntaxNode, prefix: string[]): void {
     if (n.type === "scoped_identifier") {
       results.push([...prefix, ...collectPath(n)]);
       return;
@@ -206,7 +206,7 @@ function extractUsePaths(node: Parser.SyntaxNode): string[][] {
   return results;
 }
 
-function collectPath(node: Parser.SyntaxNode): string[] {
+function collectPath(node: SyntaxNode): string[] {
   if (node.type === "identifier" || node.type === "crate" || node.type === "super" || node.type === "self") {
     return [node.text];
   }

@@ -1,8 +1,7 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
-import type Parser from "tree-sitter";
 import { analyzeProject, getFileImpact } from "../core/index.js";
-import { parseFile } from "../core/parser.js";
+import { parseFile, rootNode, type SyntaxNode } from "../core/parser.js";
 
 interface LineRange {
   start: number;
@@ -47,10 +46,10 @@ async function getChangedLineRanges(
   return result;
 }
 
-function findExportRanges(rootNode: Parser.SyntaxNode): ExportRange[] {
+function findExportRanges(rootNode: SyntaxNode): ExportRange[] {
   const ranges: ExportRange[] = [];
 
-  function walk(node: Parser.SyntaxNode): void {
+  function walk(node: SyntaxNode): void {
     if (node.type === "export_statement") {
       const startLine = node.startPosition.row + 1;
       const endLine = node.endPosition.row + 1;
@@ -153,9 +152,9 @@ export function registerDiffCommand(program: Command): void {
         if (!ranges) continue;
 
         const parsed = await parseFile(rootDir, file);
-        if (!parsed) continue;
+        if (!parsed?.tree) continue;
 
-        const exportRanges = findExportRanges(parsed.tree.rootNode);
+        const exportRanges = findExportRanges(rootNode(parsed.tree));
         const changedExports = detectChangedExports(exportRanges, ranges);
 
         if (changedExports.length > 0 && changedExports.length < exports.length) {

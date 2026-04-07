@@ -1,5 +1,4 @@
-import type Parser from "tree-sitter";
-import type { ParseResult } from "./parser.js";
+import { rootNode, type ParseResult, type SyntaxNode } from "./parser.js";
 import type { GraphNode, GraphEdge } from "./graph.js";
 import type { ExtractionResult, ExtractorContext } from "./types.js";
 import { dirname, resolve, relative, extname, join } from "node:path";
@@ -39,13 +38,14 @@ export function extractDependencies(
     name: parsed.filePath,
   });
 
-  visitNode(parsed.tree.rootNode, parsed, ctx, fileId, nodes, edges);
+  if (!parsed.tree) return { nodes, edges };
+  visitNode(rootNode(parsed.tree), parsed, ctx, fileId, nodes, edges);
 
   return { nodes, edges };
 }
 
 function visitNode(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   fileId: string,
@@ -73,7 +73,7 @@ function visitNode(
 }
 
 function handleImport(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   fileId: string,
@@ -122,7 +122,7 @@ function handleImport(
 }
 
 function handleExportOrReexport(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   fileId: string,
@@ -208,7 +208,7 @@ function createExportNode(
   edges.push({ from: fileId, to: exportId, kind: "exports", metadata: {} });
 }
 
-function extractExportClauseNames(node: Parser.SyntaxNode): string[] {
+function extractExportClauseNames(node: SyntaxNode): string[] {
   const names: string[] = [];
   const clause = node.children.find((c) => c.type === "export_clause");
   if (!clause) return names;
@@ -227,7 +227,7 @@ function extractExportClauseNames(node: Parser.SyntaxNode): string[] {
 }
 
 function handleDynamicImportOrRequire(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   ctx: ExtractorContext,
   fileId: string,
@@ -279,7 +279,7 @@ interface ImportBinding {
   kind: "default" | "named" | "namespace";
 }
 
-function extractImportBindings(node: Parser.SyntaxNode): ImportBinding[] {
+function extractImportBindings(node: SyntaxNode): ImportBinding[] {
   const bindings: ImportBinding[] = [];
   const clause = node.children.find((c) => c.type === "import_clause");
   if (!clause) return bindings;
@@ -400,7 +400,7 @@ const INDEX_FILES = [
  * Handles: process.env.FOO, process.env['FOO'], process.env["FOO"]
  */
 function handleEnvAccess(
-  node: Parser.SyntaxNode,
+  node: SyntaxNode,
   parsed: ParseResult,
   fileId: string,
   nodes: GraphNode[],

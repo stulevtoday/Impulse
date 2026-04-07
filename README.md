@@ -45,18 +45,25 @@ Sound familiar?
 ## 30 seconds to try it
 
 ```bash
-git clone https://github.com/stulevtoday/Impulse.git
-cd Impulse && npm install && npm run build
-node dist/cli/index.js scan /path/to/your/project
+npx impulse-analyzer scan .
 ```
+
+That's it. No compilation, no native dependencies, no config.
 
 Then the fun part:
 
 ```bash
-node dist/cli/index.js visualize /path/to/your/project
+npx impulse-analyzer visualize .
 ```
 
 Your browser opens. You see your entire project as a living, breathing graph. Click a file — a ripple wave shows you exactly how far your change would travel.
+
+### Install globally
+
+```bash
+npm install -g impulse-analyzer
+impulse scan .
+```
 
 ## What can it do?
 
@@ -78,7 +85,7 @@ Your browser opens. You see your entire project as a living, breathing graph. Cl
 Every analysis command supports `--json` for scripting:
 
 ```bash
-node dist/cli/index.js health . --json | jq '.score'
+impulse health . --json | jq '.score'
 ```
 
 ## Languages
@@ -180,7 +187,7 @@ Outputs (`score`, `grade`, `delta`, `affected`) are available for downstream ste
 ## Daemon API
 
 ```bash
-node dist/cli/index.js daemon .
+impulse daemon .
 # Listening on http://localhost:4096
 ```
 
