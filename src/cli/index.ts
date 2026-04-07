@@ -599,4 +599,17 @@ program
     }, 2000);
   });
 
+program
+  .command("ci")
+  .description("Run CI analysis — preview what Impulse CI would report on a PR")
+  .argument("[dir]", "Project root directory", ".")
+  .option("--base <ref>", "Base branch ref for comparison", "origin/main")
+  .option("--threshold <n>", "Minimum health score (fails if below)", "0")
+  .action(async (dir: string, opts: { base: string; threshold: string }) => {
+    process.env.IMPULSE_BASE_REF = opts.base;
+    process.env.IMPULSE_THRESHOLD = opts.threshold;
+    process.argv[2] = resolve(dir);
+    await import("../ci/index.js");
+  });
+
 program.parse();

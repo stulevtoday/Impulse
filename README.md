@@ -73,6 +73,7 @@ Your browser opens. You see your entire project as a living, breathing graph. Cl
 | `why A.ts B.ts .` | Show the dependency chain between two files |
 | `explore .` | Interactive terminal REPL |
 | `env .` | Find undefined/unused environment variables |
+| `ci .` | Preview the CI report locally |
 
 Every analysis command supports `--json` for scripting:
 
@@ -121,6 +122,51 @@ It finds circular dependencies and classifies them by severity:
 ```
 
 Barrel files (`index.ts` that only re-export) are detected automatically and excluded from the dead count.
+
+## GitHub Action — Impulse CI
+
+Add impact analysis to every pull request. One file, zero config:
+
+```yaml
+# .github/workflows/impulse.yml
+name: Impulse CI
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  impulse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: stulevtoday/Impulse@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Every PR gets a comment:
+
+- **Health score delta** — did your changes improve or degrade architecture?
+- **Impact table** — which files you changed, how many files each one affects
+- **Full affected file list** — every transitive dependent, with depth and cause
+- **New issues** — cycles introduced or resolved, new god files
+
+Optional quality gate:
+
+```yaml
+- uses: stulevtoday/Impulse@main
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    threshold: 70  # fail the PR if health drops below 70
+```
+
+Outputs (`score`, `grade`, `delta`, `affected`) are available for downstream steps.
 
 ## Visualization
 

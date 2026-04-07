@@ -1,0 +1,71 @@
+name: 'Impulse CI'
+description: 'Dependency impact analysis and architecture health scoring for pull requests. Shows what breaks before it breaks.'
+
+branding:
+  icon: 'activity'
+  color: 'purple'
+
+inputs:
+  github-token:
+    description: 'GitHub token for posting PR comments. Defaults to the automatic GITHUB_TOKEN.'
+    required: false
+    default: ${{ github.token }}
+  threshold:
+    description: 'Minimum health score (0-100). The action fails if the score drops below this value.'
+    required: false
+    default: '0'
+  base-ref:
+    description: 'Base branch ref for comparison (e.g. origin/main). Defaults to the PR base branch.'
+    required: false
+    default: ''
+
+outputs:
+  score:
+    description: 'Health score of the PR branch (0-100)'
+    value: ${{ steps.analyze.outputs.score }}
+  grade:
+    description: 'Health grade (A/B/C/D/F)'
+    value: ${{ steps.analyze.outputs.grade }}
+  affected:
+    description: 'Number of files affected by changes in this PR'
+    value: ${{ steps.analyze.outputs.affected }}
+  delta:
+    description: 'Health score change compared to the base branch'
+    value: ${{ steps.analyze.outputs.delta }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install and build Impulse
+      shell: bash
+      run: |
+        cd "${{ github.action_path }}"
+        npm ci
+        npm run build
+
+    - name: Run Impulse CI analysis
+      id: analyze
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        IMPULSE_PR_NUMBER: ${{ github.event.pull_request.number }}
+        IMPULSE_THRESHOLD: ${{ inputs.threshold }}
+        IMPULSE_BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        # Determine base ref: user input > PR base > default to origin/main
+        if [ -z "$IMPULSE_BASE_REF" ]; then
+          PR_BASE="${{ github.event.pull_request.base.ref }}"
+          if [ -n "$PR_BASE" ]; then
+            export IMPULSE_BASE_REF="origin/${PR_BASE}"
+          else
+            export IMPULSE_BASE_REF="origin/main"
+          fi
+        fi
+
+        node "${{ github.action_path }}/dist/ci/index.js" "${{ github.workspace }}"

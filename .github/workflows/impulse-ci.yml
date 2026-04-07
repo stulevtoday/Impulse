@@ -1,0 +1,25 @@
+name: Impulse CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  impulse:
+    name: Impact Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Impulse CI
+        uses: stulevtoday/Impulse@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          threshold: 0
