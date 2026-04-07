@@ -80,6 +80,7 @@ impulse scan .
 | `why A.ts B.ts .` | Show the dependency chain between two files |
 | `explore .` | Interactive terminal REPL |
 | `history .` | Health timeline across git commits |
+| `suggest .` | Actionable refactoring suggestions |
 | `env .` | Find undefined/unused environment variables |
 | `ci .` | Preview the CI report locally |
 
