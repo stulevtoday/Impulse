@@ -159,6 +159,25 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       break;
     }
 
+    case "/exports": {
+      const file = query.file;
+      const exportNodes = state!.graph.allNodes().filter((n) =>
+        n.kind === "export" && (!file || n.filePath === file),
+      );
+      const allEdges = state!.graph.allEdges();
+
+      const exports = exportNodes.map((exp) => {
+        const users = allEdges
+          .filter((e) => e.to === exp.id && e.kind === "uses_export")
+          .map((e) => e.from.replace(/^file:/, ""));
+        return { file: exp.filePath, name: exp.name, users, dead: users.length === 0 };
+      });
+
+      const dead = exports.filter((e) => e.dead);
+      json(res, 200, { total: exports.length, dead: dead.length, exports });
+      break;
+    }
+
     case "/health": {
       const report = analyzeHealth(state!.graph);
       json(res, 200, {

@@ -84,12 +84,7 @@ function handleImport(
   const targetId = resolvedPath ? `file:${resolvedPath}` : `external:${raw}`;
 
   if (resolvedPath) {
-    nodes.push({
-      id: targetId,
-      kind: "file",
-      filePath: resolvedPath,
-      name: resolvedPath,
-    });
+    nodes.push({ id: targetId, kind: "file", filePath: resolvedPath, name: resolvedPath });
   }
 
   edges.push({
@@ -99,16 +94,26 @@ function handleImport(
     metadata: { specifier: raw, line: sourceNode.startPosition.row + 1 },
   });
 
-  const importedNames = extractImportedNames(node);
-  for (const name of importedNames) {
-    const symbolId = `symbol:${parsed.filePath}:${name}`;
+  const bindings = extractImportBindings(node);
+  for (const b of bindings) {
     nodes.push({
-      id: symbolId,
+      id: `symbol:${parsed.filePath}:${b.localName}`,
       kind: "symbol",
       filePath: parsed.filePath,
-      name,
+      name: b.localName,
       line: node.startPosition.row + 1,
     });
+
+    if (resolvedPath && b.kind !== "namespace") {
+      const exportId = `export:${resolvedPath}:${b.exportName}`;
+      nodes.push({ id: exportId, kind: "export", filePath: resolvedPath, name: b.exportName });
+      edges.push({
+        from: fileId,
+        to: exportId,
+        kind: "uses_export",
+        metadata: { line: node.startPosition.row + 1 },
+      });
+    }
   }
 }
 
@@ -121,18 +126,14 @@ function handleExportOrReexport(
   edges: GraphEdge[],
 ): void {
   const sourceNode = node.children.find((c) => c.type === "string");
+
   if (sourceNode) {
     const raw = stripQuotes(sourceNode.text);
     const resolvedPath = resolveImportPath(raw, parsed.filePath, ctx);
     const targetId = resolvedPath ? `file:${resolvedPath}` : `external:${raw}`;
 
     if (resolvedPath) {
-      nodes.push({
-        id: targetId,
-        kind: "file",
-        filePath: resolvedPath,
-        name: resolvedPath,
-      });
+      nodes.push({ id: targetId, kind: "file", filePath: resolvedPath, name: resolvedPath });
     }
 
     edges.push({
@@ -141,6 +142,21 @@ function handleExportOrReexport(
       kind: "imports",
       metadata: { specifier: raw, reexport: true, line: sourceNode.startPosition.row + 1 },
     });
+
+    const reexportedNames = extractExportClauseNames(node);
+    for (const name of reexportedNames) {
+      createExportNode(parsed.filePath, name, sourceNode.startPosition.row + 1, fileId, nodes, edges);
+      if (resolvedPath) {
+        const targetExportId = `export:${resolvedPath}:${name}`;
+        nodes.push({ id: targetExportId, kind: "export", filePath: resolvedPath, name });
+        edges.push({
+          from: fileId,
+          to: targetExportId,
+          kind: "uses_export",
+          metadata: { line: sourceNode.startPosition.row + 1 },
+        });
+      }
+    }
     return;
   }
 
@@ -154,19 +170,56 @@ function handleExportOrReexport(
       c.type === "type_alias_declaration",
   );
 
-  if (!declaration) return;
+  if (declaration) {
+    const nameNode = declaration.children.find((c) => c.type === "identifier" || c.type === "type_identifier");
+    if (nameNode) {
+      createExportNode(parsed.filePath, nameNode.text, nameNode.startPosition.row + 1, fileId, nodes, edges);
+    }
+    return;
+  }
 
-  const nameNode = declaration.children.find((c) => c.type === "identifier" || c.type === "type_identifier");
-  if (!nameNode) return;
+  const exportClause = node.children.find((c) => c.type === "export_clause");
+  if (exportClause) {
+    for (const name of extractExportClauseNames(node)) {
+      createExportNode(parsed.filePath, name, node.startPosition.row + 1, fileId, nodes, edges);
+    }
+    return;
+  }
 
-  const symbolId = `symbol:${parsed.filePath}:${nameNode.text}`;
-  nodes.push({
-    id: symbolId,
-    kind: "symbol",
-    filePath: parsed.filePath,
-    name: nameNode.text,
-    line: nameNode.startPosition.row + 1,
-  });
+  if (node.children.some((c) => c.type === "default")) {
+    createExportNode(parsed.filePath, "default", node.startPosition.row + 1, fileId, nodes, edges);
+  }
+}
+
+function createExportNode(
+  filePath: string,
+  name: string,
+  line: number,
+  fileId: string,
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+): void {
+  const exportId = `export:${filePath}:${name}`;
+  nodes.push({ id: exportId, kind: "export", filePath, name, line });
+  edges.push({ from: fileId, to: exportId, kind: "exports", metadata: {} });
+}
+
+function extractExportClauseNames(node: Parser.SyntaxNode): string[] {
+  const names: string[] = [];
+  const clause = node.children.find((c) => c.type === "export_clause");
+  if (!clause) return names;
+
+  for (const spec of clause.children) {
+    if (spec.type === "export_specifier") {
+      const ids = spec.children.filter((c) => c.type === "identifier");
+      if (ids.length >= 2) {
+        names.push(ids[1].text);
+      } else if (ids.length === 1) {
+        names.push(ids[0].text);
+      }
+    }
+  }
+  return names;
 }
 
 function handleDynamicImportOrRequire(
@@ -216,30 +269,42 @@ function handleDynamicImportOrRequire(
   });
 }
 
-function extractImportedNames(node: Parser.SyntaxNode): string[] {
-  const names: string[] = [];
+interface ImportBinding {
+  localName: string;
+  exportName: string;
+  kind: "default" | "named" | "namespace";
+}
+
+function extractImportBindings(node: Parser.SyntaxNode): ImportBinding[] {
+  const bindings: ImportBinding[] = [];
   const clause = node.children.find((c) => c.type === "import_clause");
-  if (!clause) return names;
+  if (!clause) return bindings;
 
   for (const child of clause.children) {
     if (child.type === "identifier") {
-      names.push(child.text);
+      bindings.push({ localName: child.text, exportName: "default", kind: "default" });
     }
     if (child.type === "named_imports") {
       for (const spec of child.children) {
         if (spec.type === "import_specifier") {
-          const nameNode = spec.children.find((c) => c.type === "identifier");
-          if (nameNode) names.push(nameNode.text);
+          const ids = spec.children.filter((c) => c.type === "identifier");
+          if (ids.length >= 2) {
+            bindings.push({ localName: ids[1].text, exportName: ids[0].text, kind: "named" });
+          } else if (ids.length === 1) {
+            bindings.push({ localName: ids[0].text, exportName: ids[0].text, kind: "named" });
+          }
         }
       }
     }
     if (child.type === "namespace_import") {
       const nameNode = child.children.find((c) => c.type === "identifier");
-      if (nameNode) names.push(nameNode.text);
+      if (nameNode) {
+        bindings.push({ localName: nameNode.text, exportName: "*", kind: "namespace" });
+      }
     }
   }
 
-  return names;
+  return bindings;
 }
 
 const JS_TO_TS: Record<string, string[]> = {

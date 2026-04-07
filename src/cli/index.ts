@@ -384,6 +384,60 @@ program
   });
 
 program
+  .command("exports")
+  .description("Show exports per file — who uses each, and which are dead")
+  .argument("[dir]", "Project root directory", ".")
+  .option("-f, --file <path>", "Show exports for a specific file only")
+  .action(async (dir: string, opts: { file?: string }) => {
+    const rootDir = resolve(dir);
+    const { graph, stats } = await analyzeProject(rootDir);
+
+    const exportNodes = graph.allNodes().filter((n) => n.kind === "export");
+    const allEdges = graph.allEdges();
+
+    const exportsByFile = new Map<string, Array<{ name: string; users: string[] }>>();
+    for (const exp of exportNodes) {
+      const users = allEdges
+        .filter((e) => e.to === exp.id && e.kind === "uses_export")
+        .map((e) => e.from.replace(/^file:/, ""));
+
+      const list = exportsByFile.get(exp.filePath) ?? [];
+      list.push({ name: exp.name, users });
+      exportsByFile.set(exp.filePath, list);
+    }
+
+    const files = opts.file
+      ? [[opts.file, exportsByFile.get(opts.file) ?? []] as const]
+      : [...exportsByFile.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+    let totalExports = 0;
+    let deadExports = 0;
+
+    console.log(`\n  Impulse — Export Analysis (${stats.filesScanned} files, ${stats.durationMs}ms)\n`);
+
+    for (const [file, exports] of files) {
+      if (exports.length === 0) continue;
+      const dead = exports.filter((e) => e.users.length === 0);
+      totalExports += exports.length;
+      deadExports += dead.length;
+
+      console.log(`  ${file}  (${exports.length} exports, ${dead.length} dead)`);
+      for (const exp of exports.sort((a, b) => b.users.length - a.users.length)) {
+        const icon = exp.users.length === 0 ? "\x1b[31m✗\x1b[0m" : "\x1b[32m✓\x1b[0m";
+        const count = exp.users.length === 0 ? "unused" : `${exp.users.length} user(s)`;
+        console.log(`    ${icon} ${exp.name}  — ${count}`);
+        for (const user of exp.users.slice(0, 5)) {
+          console.log(`        ← ${user}`);
+        }
+        if (exp.users.length > 5) console.log(`        ...+${exp.users.length - 5} more`);
+      }
+      console.log();
+    }
+
+    console.log(`  Total: ${totalExports} exports, ${deadExports} dead (${totalExports > 0 ? Math.round(deadExports / totalExports * 100) : 0}% unused)\n`);
+  });
+
+program
   .command("daemon")
   .description("Start the Impulse daemon with HTTP API")
   .argument("[dir]", "Project root directory", ".")

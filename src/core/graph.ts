@@ -1,8 +1,9 @@
-export type NodeKind = "file" | "symbol" | "route" | "config" | "env_var";
+export type NodeKind = "file" | "symbol" | "export" | "route" | "config" | "env_var";
 
 export type EdgeKind =
   | "imports"
   | "exports"
+  | "uses_export"
   | "calls"
   | "defines_route"
   | "reads_env"
