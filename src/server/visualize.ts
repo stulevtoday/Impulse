@@ -277,7 +277,13 @@ async function main() {
             .select("circle")
             .classed("ripple", false)
             .each(function() { this.offsetWidth; })
-            .classed("ripple", true);
+            .classed("ripple", true)
+            .each(function() {
+              this.addEventListener("animationend", () => {
+                this.classList.remove("ripple");
+                this.style.filter = "";
+              }, { once: true });
+            });
           link.filter(l => affectedIds.has(l.source.id) && affectedIds.has(l.target.id) && ids.has(l.source.id))
             .classed("highlighted", true);
         }, depth * 400);
