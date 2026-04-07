@@ -418,6 +418,82 @@ program
   });
 
 program
+  .command("diff")
+  .description("Show impact of your uncommitted changes (git integration)")
+  .argument("[dir]", "Project root directory", ".")
+  .option("--staged", "Only analyze staged changes")
+  .option("--json", "Output as JSON")
+  .action(async (dir: string, opts: { staged?: boolean; json?: boolean }) => {
+    const rootDir = resolve(dir);
+    const { execSync } = await import("node:child_process");
+
+    let changedFiles: string[];
+    try {
+      const cmd = opts.staged ? "git diff --cached --name-only" : "git diff --name-only HEAD";
+      const raw = execSync(cmd, { cwd: rootDir, encoding: "utf-8" }).trim();
+      changedFiles = raw ? raw.split("\n").filter((f) => f.length > 0) : [];
+    } catch {
+      if (!opts.json) console.log("\n  Not a git repository or no commits yet.\n");
+      return;
+    }
+
+    if (changedFiles.length === 0) {
+      if (opts.json) {
+        console.log(JSON.stringify({ changed: [], affected: [], count: 0 }));
+      } else {
+        console.log("\n  No uncommitted changes.\n");
+      }
+      return;
+    }
+
+    const { graph, stats } = await analyzeProject(rootDir);
+
+    const allAffected = new Map<string, { depth: number; via: string }>();
+    const changedSet = new Set(changedFiles);
+
+    for (const file of changedFiles) {
+      const impact = getFileImpact(graph, file);
+      for (const item of impact.affected) {
+        if (changedSet.has(item.node.filePath)) continue;
+        const existing = allAffected.get(item.node.filePath);
+        if (!existing || item.depth < existing.depth) {
+          allAffected.set(item.node.filePath, { depth: item.depth, via: file });
+        }
+      }
+    }
+
+    const sorted = [...allAffected.entries()].sort((a, b) => a[1].depth - b[1].depth);
+
+    if (opts.json) {
+      console.log(JSON.stringify({
+        changed: changedFiles,
+        affected: sorted.map(([file, info]) => ({ file, depth: info.depth, via: info.via })),
+        count: sorted.length,
+        analysisMs: stats.durationMs,
+      }, null, 2));
+      return;
+    }
+
+    console.log(`\n  Impulse — impact of your changes (${stats.durationMs}ms)\n`);
+    console.log(`  Changed files (${changedFiles.length}):`);
+    for (const f of changedFiles) {
+      console.log(`    \x1b[33m●\x1b[0m ${f}`);
+    }
+
+    if (sorted.length === 0) {
+      console.log("\n  \x1b[32m✓ No other files affected by your changes.\x1b[0m\n");
+    } else {
+      console.log(`\n  Affected files (${sorted.length}):\n`);
+      for (const [file, info] of sorted.slice(0, 30)) {
+        const depth = info.depth === 1 ? "direct" : `depth ${info.depth}`;
+        console.log(`    \x1b[31m→\x1b[0m ${file}  (${depth}, via ${info.via})`);
+      }
+      if (sorted.length > 30) console.log(`    ...+${sorted.length - 30} more`);
+      console.log();
+    }
+  });
+
+program
   .command("exports")
   .description("Show exports per file — who uses each, and which are dead")
   .argument("[dir]", "Project root directory", ".")
