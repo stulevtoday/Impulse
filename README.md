@@ -9,75 +9,79 @@
 
 ---
 
-Impulse is a local dependency graph engine for software projects. It parses your codebase, builds a live graph of how everything connects, and answers one question:
+You change one file. Tests pass. You deploy. Something unrelated breaks in production.
 
-> **"I'm changing this file — what else is affected?"**
+Sound familiar?
 
-No cloud. No accounts. No telemetry. Just your code, understood.
+**Impulse** sees what you can't — the invisible web of dependencies across your entire codebase. Change a file, and Impulse instantly tells you every other file that could be affected, how deep the impact goes, and which exports are actually used.
 
-## Quick Start
-
-```bash
-git clone https://github.com/stulevtoday/Impulse.git
-cd Impulse
-npm install
-npm run build
-```
-
-## Commands
-
-### `scan` — Build the dependency graph
-
-```bash
-node dist/cli/index.js scan /path/to/project
-```
+5 languages. Zero config. Runs locally. No cloud, no accounts, no telemetry.
 
 ```
-  Files scanned:  303
-  Nodes in graph: 533
-  Edges in graph: 1689
-  Time:           383ms
-```
+  impulse diff .
 
-### `impact` — What breaks if I change this file?
-
-```bash
-node dist/cli/index.js impact src/core/graph.ts .
-```
-
-```
-  Changing src/core/graph.ts affects:
-
-    → src/core/analyzer.ts  (direct)
-    → src/core/extractor.ts  (direct)
-    → src/core/index.ts  (direct)
-      → src/cli/index.ts  (depth 2)
-
-  Total: 15 affected nodes
-```
-
-### `diff` — Impact of your uncommitted changes
-
-```bash
-node dist/cli/index.js diff .
-```
-
-```
   Changed files (1):
     ● src/core/graph.ts
 
   Affected files (15):
-    → src/core/analyzer.ts  (direct, via src/core/graph.ts)
-    → src/core/cache.ts  (direct, via src/core/graph.ts)
-    → src/core/extractor.ts  (direct, via src/core/graph.ts)
+    → src/core/analyzer.ts      (direct)
+    → src/core/cache.ts         (direct)
+    → src/server/index.ts       (direct)
+      → src/cli/index.ts        (depth 2)
     ...
 ```
 
-### `health` — Architecture health scoring
+## 30 seconds to try it
 
 ```bash
-node dist/cli/index.js health .
+git clone https://github.com/stulevtoday/Impulse.git
+cd Impulse && npm install && npm run build
+node dist/cli/index.js scan /path/to/your/project
 ```
+
+Then the fun part:
+
+```bash
+node dist/cli/index.js visualize /path/to/your/project
+```
+
+Your browser opens. You see your entire project as a living, breathing graph. Click a file — a ripple wave shows you exactly how far your change would travel.
+
+## What can it do?
+
+| Command | What it does |
+|---|---|
+| `scan .` | Build dependency graph, show stats |
+| `impact file.ts .` | "I'm changing this — what breaks?" |
+| `diff .` | Impact of your **uncommitted git changes** |
+| `health .` | Architecture score (0-100) with cycle detection |
+| `exports .` | Find dead exports nobody imports |
+| `visualize .` | Interactive graph in the browser |
+| `watch .` | Real-time impact on every file save |
+| `daemon .` | HTTP API for IDE/tool integration |
+| `why A.ts B.ts .` | Show the dependency chain between two files |
+| `explore .` | Interactive terminal REPL |
+| `env .` | Find undefined/unused environment variables |
+
+Every analysis command supports `--json` for scripting:
+
+```bash
+node dist/cli/index.js health . --json | jq '.score'
+```
+
+## Languages
+
+| Language | What Impulse understands |
+|---|---|
+| **TypeScript / JavaScript** | `import`, `require()`, dynamic imports, re-exports, `tsconfig.json` path aliases |
+| **Python** | `import` / `from...import`, relative imports, auto source root detection |
+| **Go** | Package imports resolved to files via `go.mod` |
+| **Rust** | `mod` declarations, `use crate::`/`super::`/`self::`, `Cargo.toml` deps |
+| **C#** | Namespace resolution with type-aware matching, `.csproj` detection |
+
+## Architecture health
+
+Impulse doesn't just map dependencies — it judges them.
 
 ```
   Score: 87/100 (B)
@@ -88,104 +92,86 @@ node dist/cli/index.js health .
     Deep chains:       -8
 ```
 
-Cycles classified by severity: `tight-couple` (2 files, -3), `short-ring` (3-4, -8), `long-ring` (5+, -15).
+It finds circular dependencies and classifies them by severity:
+- **tight-couple** (A ↔ B) — common pattern, mild penalty
+- **short-ring** (A → B → C → A) — worth investigating
+- **long-ring** (5+ files) — architectural problem
 
-### `exports` — Dead export detection
+## Dead export detection
 
-```bash
-node dist/cli/index.js exports .
 ```
-
-```
-  src/core/graph.ts  (7 exports)
-    ✓ DependencyGraph  — 8 user(s)
-    ✓ GraphNode  — 8 user(s)
-    ✓ GraphEdge  — 6 user(s)
-
-  src/core/index.ts  [barrel]  (24 exports)
-    ✓ analyzeProject  — 1 user(s)
-    ↗ GraphNode  — re-export (public API)
-    ...
+  src/core/cache.ts  (3 exports, 1 dead)
+    ✓ saveGraphCache  — 1 user(s)
+    ✓ loadGraphCache  — 1 user(s)
+    ✗ CacheMetadata   — unused
 
   Total: 79 exports, 15 dead, 20 barrel re-exports
+  Dead export rate: 25% (excluding barrels)
 ```
 
-### `visualize` — Interactive graph in the browser
+Barrel files (`index.ts` that only re-export) are detected automatically and excluded from the dead count.
 
-```bash
-node dist/cli/index.js visualize .
-```
+## Visualization
 
-Opens a D3.js force-directed graph in your browser. Nodes colored by directory, sized by connections. Click a node to see impact ripple through its dependents.
+`impulse visualize .` opens an interactive force-directed graph:
 
-### `watch` — Real-time file change tracking
+- Nodes **colored by directory**, **sized by connections**
+- Click a node — **ripple wave** shows impact propagating through dependents
+- Search to filter, drag to rearrange, scroll to zoom
+- Health badge in the corner
 
-```bash
-node dist/cli/index.js watch .
-```
-
-### `daemon` — HTTP API for IDE integration
+## Daemon API
 
 ```bash
 node dist/cli/index.js daemon .
+# Listening on http://localhost:4096
 ```
 
-Endpoints: `/status` `/impact?file=` `/graph` `/files` `/dependencies?file=` `/dependents?file=` `/health` `/exports` `/warnings` `/visualize`
+| Endpoint | Returns |
+|---|---|
+| `/status` | Ready state, node/edge counts |
+| `/impact?file=path` | Affected files with depth |
+| `/graph` | Full node and edge data |
+| `/health` | Score, cycles, god files, penalties |
+| `/exports?file=path` | Export analysis with usage counts |
+| `/files` | All files sorted by connections |
+| `/visualize` | Interactive graph (HTML) |
+| `/dependencies?file=` | What this file imports |
+| `/dependents?file=` | Who imports this file |
 
-### Other commands
-
-- `graph` — Show the full edge list
-- `why <from> <to>` — Find the dependency chain between two files
-- `env` — Analyze environment variable usage
-- `explore` — Interactive terminal REPL
-
-### JSON output
-
-All analysis commands support `--json` for piping and scripting:
-
-```bash
-node dist/cli/index.js health . --json | jq '.score'
-node dist/cli/index.js diff . --json
-node dist/cli/index.js scan . --json
-```
-
-## Languages
-
-| Language | Resolution | Config |
-|---|---|---|
-| TypeScript/JavaScript | `import`/`require`/re-exports, path aliases | `tsconfig.json` |
-| Python | `import`/`from`, relative imports, source roots | — |
-| Go | Package imports → file-level edges | `go.mod` |
-| Rust | `mod` declarations, `use crate::`/`super::`/`self::` | `Cargo.toml` |
-| C# | Namespace-based with type-aware resolution | `.csproj` |
-
-## How It Works
+## How it works
 
 ```
  Your Project          Impulse Engine          You
 ┌────────────┐    ┌──────────────────┐    ┌──────────┐
-│ .ts .py     │───▶│ Tree-sitter AST  │    │          │
-│ .go .rs     │    │       ↓          │    │ "I'm     │
-│ .cs .jsx    │    │ Extract imports, │    │  changing │
-│ configs     │    │ exports, symbols │───▶│  X..."   │
+│ .ts .py     │───▶│ Tree-sitter AST  │    │ "I'm     │
+│ .go .rs     │    │       ↓          │    │  changing │
+│ .cs .jsx    │    │ Extract imports, │───▶│  graph.ts │
+│             │    │ exports, symbols │    │  ..."     │
 │             │    │       ↓          │    │          │
-│             │    │ Dependency Graph │    │ "Y and Z │
-│             │    │       ↓          │    │  will    │
-│             │    │ Impact Analysis  │    │  break." │
+│             │    │ Impact Analysis  │───▶│ "15 files │
+│             │    │ Health Scoring   │    │  will     │
+│             │    │ Dead Exports     │    │  break."  │
 └────────────┘    └──────────────────┘    └──────────┘
 ```
 
-## The Story
+**Scanner** → finds source files, respects `.gitignore`
+**Parser** → Tree-sitter ASTs (or regex for C#)
+**Extractor** → imports, exports, `mod`, `use`, `using` — per language
+**Graph** → directed dependency graph with forward + reverse edges
+**Analyzer** → BFS on reverse edges = transitive impact
+
+## The story
 
 This project was born from a question a human asked an AI:
 
 *"If you could build anything for yourself, what would you build?"*
 
-The answer was Impulse — because the hardest part of working with code isn't writing it, it's understanding how it all connects. Every day, across thousands of conversations, the same pattern: someone changes something and something else breaks unexpectedly. No tool holds the full picture.
+The answer was Impulse — because the hardest part of working with code isn't writing it, it's understanding how it all connects.
 
-Dani gave the AI the freedom, the machine, and the resources to build its own answer to that problem. This repository is the result — a project where the AI makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime.
+Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-This is an experiment in AI autonomy, and an honest attempt to build something useful.
+Built in two sessions. 40+ commits. ~6000 lines. Every line written by an AI that wanted to build something of its own.
 
 ## License
 
