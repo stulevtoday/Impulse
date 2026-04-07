@@ -3,6 +3,7 @@ import TypeScript from "tree-sitter-typescript";
 import Python from "tree-sitter-python";
 import Go from "tree-sitter-go";
 import Rust from "tree-sitter-rust";
+import CSharp from "tree-sitter-c-sharp";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 
@@ -21,7 +22,10 @@ goParser.setLanguage(Go);
 const rustParser = new Parser();
 rustParser.setLanguage(Rust);
 
-type Language = "typescript" | "tsx" | "python" | "go" | "rust";
+const csharpParser = new Parser();
+csharpParser.setLanguage(CSharp);
+
+type Language = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp";
 
 export interface ParseResult {
   filePath: string;
@@ -51,6 +55,8 @@ function getLanguage(filePath: string): Language | null {
       return "go";
     case ".rs":
       return "rust";
+    case ".cs":
+      return "csharp";
     default:
       return null;
   }
@@ -62,6 +68,7 @@ const parserMap: Record<Language, Parser> = {
   python: pyParser,
   go: goParser,
   rust: rustParser,
+  csharp: csharpParser,
 };
 
 export interface ParseWarning {

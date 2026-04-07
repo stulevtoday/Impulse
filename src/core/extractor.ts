@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { extractPythonDependencies } from "./python-extractor.js";
 import { extractGoDependencies } from "./go-extractor.js";
 import { extractRustDependencies } from "./rust-extractor.js";
+import { extractCSharpDependencies } from "./csharp-extractor.js";
 
 export type { ExtractionResult, ExtractorContext } from "./types.js";
 
@@ -22,6 +23,9 @@ export function extractDependencies(
   }
   if (parsed.language === "rust") {
     return extractRustDependencies(parsed, ctx);
+  }
+  if (parsed.language === "csharp") {
+    return extractCSharpDependencies(parsed, ctx);
   }
 
   const nodes: GraphNode[] = [];

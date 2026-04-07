@@ -38,6 +38,7 @@ const SUPPORTED_EXTENSIONS = [
   "py",
   "go",
   "rs",
+  "cs",
 ];
 
 export async function scanProject(rootDir: string): Promise<ScanResult> {
