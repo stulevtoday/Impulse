@@ -4,6 +4,7 @@ import { analyzeProject, getFileImpact, updateFile } from "../core/analyzer.js";
 import { getParseWarnings } from "../core/parser.js";
 import { createWatcher } from "../watchers/fs-watcher.js";
 import { loadGraphCache, saveGraphCache } from "../core/cache.js";
+import { analyzeHealth } from "../core/health.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -144,10 +145,25 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       break;
     }
 
+    case "/health": {
+      const report = analyzeHealth(state!.graph);
+      json(res, 200, {
+        score: report.score,
+        grade: report.grade,
+        summary: report.summary,
+        penalties: report.penalties,
+        cycles: report.cycles,
+        godFiles: report.godFiles,
+        orphans: report.orphans,
+        stats: report.stats,
+      });
+      break;
+    }
+
     default:
       json(res, 404, { error: "Not found", endpoints: [
         "/status", "/impact?file=", "/graph", "/files",
-        "/dependencies?file=", "/dependents?file=", "/warnings",
+        "/dependencies?file=", "/dependents?file=", "/health", "/warnings",
       ]});
   }
 }
@@ -225,7 +241,7 @@ export async function startDaemon(
 
   server.listen(port, () => {
     console.log(`\n  Daemon listening on http://localhost:${port}`);
-    console.log("  Endpoints: /status /impact /graph /files /dependencies /dependents /warnings\n");
+    console.log("  Endpoints: /status /impact /graph /files /dependencies /dependents /health /warnings\n");
   });
 }
 

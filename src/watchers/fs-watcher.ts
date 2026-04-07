@@ -1,7 +1,7 @@
 import { watch as fsWatch, type WatchEventType } from "node:fs";
-import { relative, extname, join } from "node:path";
+import { extname } from "node:path";
 import type { DependencyGraph } from "../core/graph.js";
-import type { ExtractorContext } from "../core/extractor.js";
+import type { ExtractorContext } from "../core/types.js";
 import { updateFile, getFileImpact } from "../core/analyzer.js";
 
 export interface WatcherCallbacks {
@@ -13,8 +13,19 @@ export interface WatcherCallbacks {
 }
 
 const SOURCE_EXTENSIONS = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs",
+  ".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs", ".py", ".go",
 ]);
+
+const IGNORED_SEGMENTS = new Set([
+  "node_modules", "dist", "build", ".git", "coverage",
+  ".next", ".nuxt", "vendor", "__pycache__", ".venv",
+  "venv", ".mypy_cache", ".pytest_cache", ".impulse",
+]);
+
+function shouldIgnore(filename: string): boolean {
+  const parts = filename.split(/[/\\]/);
+  return parts.some((p) => IGNORED_SEGMENTS.has(p));
+}
 
 export function createWatcher(
   rootDir: string,
@@ -23,11 +34,11 @@ export function createWatcher(
   callbacks: WatcherCallbacks,
 ): AbortController {
   const ac = new AbortController();
-
   const debounceMap = new Map<string, NodeJS.Timeout>();
 
   const handleEvent = (eventType: WatchEventType, filename: string | null) => {
     if (!filename) return;
+    if (shouldIgnore(filename)) return;
     if (!SOURCE_EXTENSIONS.has(extname(filename).toLowerCase())) return;
 
     const existing = debounceMap.get(filename);
@@ -52,25 +63,9 @@ export function createWatcher(
   };
 
   try {
-    fsWatch(
-      join(rootDir, "src"),
-      { recursive: true, signal: ac.signal },
-      (eventType, filename) => {
-        if (filename) handleEvent(eventType, `src/${filename}`);
-      },
-    );
-  } catch {
-    // no src/ directory — skip
-  }
-
-  try {
-    fsWatch(rootDir, { signal: ac.signal }, (eventType, filename) => {
-      if (filename && SOURCE_EXTENSIONS.has(extname(filename).toLowerCase())) {
-        handleEvent(eventType, filename);
-      }
-    });
-  } catch {
-    // root-level watch failed
+    fsWatch(rootDir, { recursive: true, signal: ac.signal }, handleEvent);
+  } catch (err) {
+    callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
   }
 
   callbacks.onReady?.();
