@@ -69,7 +69,7 @@ export async function updateFile(
   ctx: ExtractorContext,
   filePath: string,
 ): Promise<void> {
-  graph.removeFileNodes(filePath);
+  graph.removeFileOutgoing(filePath);
 
   const parsed = await parseFile(ctx.rootDir, filePath);
   if (!parsed) return;

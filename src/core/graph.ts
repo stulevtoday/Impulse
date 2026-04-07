@@ -48,22 +48,41 @@ export class DependencyGraph {
     this.nodes.set(node.id, node);
   }
 
+  /** Full removal: drops all edges (forward and reverse) involving this node. */
   removeNode(id: string): void {
     this.nodes.delete(id);
     this.forwardEdges.delete(id);
     this.reverseEdges.delete(id);
 
     for (const [key, edges] of this.forwardEdges) {
-      this.forwardEdges.set(
-        key,
-        edges.filter((e) => e.to !== id),
-      );
+      this.forwardEdges.set(key, edges.filter((e) => e.to !== id));
     }
     for (const [key, edges] of this.reverseEdges) {
-      this.reverseEdges.set(
-        key,
-        edges.filter((e) => e.from !== id),
-      );
+      this.reverseEdges.set(key, edges.filter((e) => e.from !== id));
+    }
+  }
+
+  /**
+   * Incremental removal for file updates: drops only outgoing edges
+   * and owned nodes, preserving incoming edges from other files.
+   */
+  removeFileOutgoing(filePath: string): void {
+    const ownedIds: string[] = [];
+    for (const node of this.nodes.values()) {
+      if (node.filePath === filePath) ownedIds.push(node.id);
+    }
+
+    for (const id of ownedIds) {
+      this.nodes.delete(id);
+
+      const forward = this.forwardEdges.get(id) ?? [];
+      for (const edge of forward) {
+        const rev = this.reverseEdges.get(edge.to);
+        if (rev) {
+          this.reverseEdges.set(edge.to, rev.filter((e) => e.from !== id));
+        }
+      }
+      this.forwardEdges.delete(id);
     }
   }
 

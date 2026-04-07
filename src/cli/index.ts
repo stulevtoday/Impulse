@@ -2,7 +2,8 @@
 
 import { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject, getFileImpact, getParseWarnings } from "../core/index.js";
+import { analyzeProject, getFileImpact, getParseWarnings, DependencyGraph } from "../core/index.js";
+import { createWatcher } from "../watchers/fs-watcher.js";
 
 const program = new Command();
 
@@ -182,5 +183,53 @@ function findPath(
 
   return null;
 }
+
+program
+  .command("watch")
+  .description("Watch a project for changes and show impact in real-time")
+  .argument("[dir]", "Project root directory", ".")
+  .action(async (dir: string) => {
+    const rootDir = resolve(dir);
+    console.log(`\n  Impulse — building initial graph for ${rootDir}...\n`);
+
+    const { graph, ctx, stats } = await analyzeProject(rootDir);
+
+    console.log(
+      `  Ready. ${stats.filesScanned} files, ${stats.edgeCount} edges (${stats.durationMs}ms)`,
+    );
+    printWarnings();
+    console.log("  Watching for changes... (Ctrl+C to stop)\n");
+
+    createWatcher(rootDir, graph, ctx, {
+      onChange(filePath, affected) {
+        const time = new Date().toLocaleTimeString();
+        console.log(`  [${time}] Changed: ${filePath}`);
+        if (affected.length > 0) {
+          console.log(`           Impact: ${affected.length} file(s) affected`);
+          for (const f of affected.slice(0, 10)) {
+            console.log(`             → ${f}`);
+          }
+          if (affected.length > 10) {
+            console.log(`             ...and ${affected.length - 10} more`);
+          }
+        } else {
+          console.log("           No dependents affected.");
+        }
+        const { nodes, edges } = graph.stats;
+        console.log(`           Graph: ${nodes} nodes, ${edges} edges\n`);
+      },
+      onAdd(filePath) {
+        const time = new Date().toLocaleTimeString();
+        console.log(`  [${time}] Added: ${filePath}\n`);
+      },
+      onRemove(filePath) {
+        const time = new Date().toLocaleTimeString();
+        console.log(`  [${time}] Removed: ${filePath}\n`);
+      },
+      onError(error) {
+        console.error(`  Error: ${error.message}`);
+      },
+    });
+  });
 
 program.parse();
