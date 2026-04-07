@@ -262,6 +262,12 @@ export async function startDaemon(
       );
       debounceSave();
     },
+    onConfigChange(configFile, rebuildStats) {
+      console.log(
+        `  [${ts()}] ⚙ ${configFile} changed → full rebuild: ${rebuildStats.files} files, ${rebuildStats.edges} edges (${rebuildStats.durationMs}ms)`,
+      );
+      debounceSave();
+    },
     onAdd(filePath) {
       console.log(`  [${ts()}] ${filePath} added`);
       debounceSave();

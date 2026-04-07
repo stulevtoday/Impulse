@@ -400,6 +400,11 @@ program
         const { nodes, edges } = graph.stats;
         console.log(`           Graph: ${nodes} nodes, ${edges} edges\n`);
       },
+      onConfigChange(configFile, rebuildStats) {
+        const time = new Date().toLocaleTimeString();
+        console.log(`  [${time}] ⚙ Config changed: ${configFile}`);
+        console.log(`           Full rebuild: ${rebuildStats.files} files, ${rebuildStats.edges} edges (${rebuildStats.durationMs}ms)\n`);
+      },
       onAdd(filePath) {
         const time = new Date().toLocaleTimeString();
         console.log(`  [${time}] Added: ${filePath}\n`);
