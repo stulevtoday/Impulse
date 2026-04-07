@@ -31,8 +31,25 @@ program
   .command("scan")
   .description("Scan a project and build the dependency graph")
   .argument("[dir]", "Project root directory", ".")
-  .action(async (dir: string) => {
+  .option("--json", "Output as JSON")
+  .action(async (dir: string, opts: { json?: boolean }) => {
     const rootDir = resolve(dir);
+
+    if (opts.json) {
+      const { graph, stats } = await analyzeProject(rootDir);
+      const files = graph.allNodes().filter((n) => n.kind === "file").map((n) => {
+        const deps = graph.getDependencies(n.id).filter((e) => e.kind === "imports");
+        return {
+          file: n.filePath,
+          localImports: deps.filter((e) => !e.to.startsWith("external:")).length,
+          externalImports: deps.filter((e) => e.to.startsWith("external:")).length,
+          importedBy: graph.getDependents(n.id).filter((e) => e.kind === "imports").length,
+        };
+      });
+      console.log(JSON.stringify({ ...stats, files }, null, 2));
+      return;
+    }
+
     console.log(`\n  Impulse — scanning ${rootDir}\n`);
 
     const { graph, stats } = await analyzeProject(rootDir);
@@ -81,14 +98,25 @@ program
   .argument("<file>", "Relative path to the changed file")
   .argument("[dir]", "Project root directory", ".")
   .option("-d, --depth <n>", "Maximum traversal depth", "5")
-  .action(async (file: string, dir: string, opts: { depth: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (file: string, dir: string, opts: { depth: string; json?: boolean }) => {
     const rootDir = resolve(dir);
     const maxDepth = parseInt(opts.depth, 10);
 
-    console.log(`\n  Impulse — analyzing impact of ${file}\n`);
-
     const { graph, stats } = await analyzeProject(rootDir);
     const impact = getFileImpact(graph, file, maxDepth);
+
+    if (opts.json) {
+      console.log(JSON.stringify({
+        changed: file,
+        affected: impact.affected.map((a) => ({ file: a.node.filePath, depth: a.depth })),
+        count: impact.affected.length,
+        analysisMs: stats.durationMs,
+      }, null, 2));
+      return;
+    }
+
+    console.log(`\n  Impulse — analyzing impact of ${file}\n`);
 
     if (impact.affected.length === 0) {
       console.log("  No dependents found. This file is a leaf node.\n");
@@ -304,10 +332,16 @@ program
   .command("health")
   .description("Analyze project architecture health — cycles, god files, coupling")
   .argument("[dir]", "Project root directory", ".")
-  .action(async (dir: string) => {
+  .option("--json", "Output as JSON")
+  .action(async (dir: string, opts: { json?: boolean }) => {
     const rootDir = resolve(dir);
     const { graph, stats } = await analyzeProject(rootDir);
     const report = analyzeHealth(graph);
+
+    if (opts.json) {
+      console.log(JSON.stringify({ ...report, analysisMs: stats.durationMs, filesAnalyzed: stats.filesScanned }, null, 2));
+      return;
+    }
 
     console.log(`\n  Impulse — Architecture Health Report`);
     console.log(`  ${stats.filesScanned} files analyzed in ${stats.durationMs}ms\n`);
