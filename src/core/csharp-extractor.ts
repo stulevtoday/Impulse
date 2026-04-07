@@ -14,6 +14,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
  */
 
 let _nsCache = new Map<string, Map<string, string[]>>();
+let _typeCache = new Map<string, Map<string, string>>();
 
 export function extractCSharpDependencies(
   parsed: ParseResult,
@@ -26,6 +27,7 @@ export function extractCSharpDependencies(
   nodes.push({ id: fileId, kind: "file", filePath: parsed.filePath, name: parsed.filePath });
 
   const nsMap = getNamespaceMap(ctx.rootDir);
+  const typeMap = getTypeMap(ctx.rootDir, nsMap);
   const externPrefixes = getExternalPrefixes(ctx.rootDir);
   const fileNamespace = extractNamespace(parsed.tree.rootNode);
   const usings = extractUsings(parsed.tree.rootNode);
@@ -43,7 +45,7 @@ export function extractCSharpDependencies(
       continue;
     }
 
-    const targetFiles = resolveNamespace(using.namespace, nsMap, parsed.filePath, fileNamespace);
+    const targetFiles = resolveWithTypes(using.namespace, nsMap, typeMap, parsed.source, parsed.filePath);
     if (targetFiles.length > 0) {
       for (const target of targetFiles) {
         const targetId = `file:${target}`;
@@ -123,24 +125,44 @@ function findNameNode(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
   return null;
 }
 
-function resolveNamespace(
+/**
+ * Smart resolution: instead of linking to ALL files in a namespace,
+ * check which type names from that namespace actually appear in the
+ * source code. Only create edges to files that define referenced types.
+ */
+function resolveWithTypes(
   usingNs: string,
   nsMap: Map<string, string[]>,
+  typeMap: Map<string, string>,
+  source: string,
   currentFile: string,
-  currentNs: string | null,
 ): string[] {
-  const direct = nsMap.get(usingNs) ?? [];
-  const filtered = direct.filter((f) => f !== currentFile);
-  if (filtered.length > 0) return filtered;
+  const filesInNs = nsMap.get(usingNs) ?? [];
+  if (filesInNs.length === 0) return [];
+  if (filesInNs.length === 1 && filesInNs[0] !== currentFile) return filesInNs;
 
-  for (const [ns, files] of nsMap) {
-    if (ns.startsWith(usingNs + ".") || usingNs.startsWith(ns + ".")) {
-      const matches = files.filter((f) => f !== currentFile);
-      if (matches.length > 0) return matches;
+  const matched = new Set<string>();
+  for (const file of filesInNs) {
+    if (file === currentFile) continue;
+    const types = getTypesForFile(file, typeMap);
+    for (const typeName of types) {
+      if (source.includes(typeName)) {
+        matched.add(file);
+        break;
+      }
     }
   }
 
-  return [];
+  if (matched.size > 0) return [...matched];
+  return filesInNs.filter((f) => f !== currentFile);
+}
+
+function getTypesForFile(file: string, typeMap: Map<string, string>): string[] {
+  const types: string[] = [];
+  for (const [typeName, ownerFile] of typeMap) {
+    if (ownerFile === file) types.push(typeName);
+  }
+  return types;
 }
 
 const EXTERNAL_PREFIXES = ["System", "Microsoft", "Newtonsoft", "NLog", "Serilog", "AutoMapper", "FluentValidation", "MediatR", "Polly", "Grpc", "Google", "Npgsql", "Dapper"];
@@ -150,6 +172,31 @@ function isExternal(ns: string, projectPrefixes: Set<string>): boolean {
   if (EXTERNAL_PREFIXES.includes(root)) return true;
   if (projectPrefixes.size > 0 && !projectPrefixes.has(root)) return true;
   return false;
+}
+
+const TYPE_DECL_RE = /(?:public|internal|private|protected)?\s*(?:static\s+)?(?:partial\s+)?(?:abstract\s+)?(?:sealed\s+)?(?:class|interface|enum|struct|record)\s+(\w+)/g;
+
+function getTypeMap(rootDir: string, nsMap: Map<string, string[]>): Map<string, string> {
+  const cached = _typeCache.get(rootDir);
+  if (cached) return cached;
+
+  const typeMap = new Map<string, string>();
+
+  for (const files of nsMap.values()) {
+    for (const file of files) {
+      try {
+        const content = readFileSync(join(rootDir, file), "utf-8");
+        let match: RegExpExecArray | null;
+        TYPE_DECL_RE.lastIndex = 0;
+        while ((match = TYPE_DECL_RE.exec(content)) !== null) {
+          typeMap.set(match[1], file);
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  _typeCache.set(rootDir, typeMap);
+  return typeMap;
 }
 
 function getNamespaceMap(rootDir: string): Map<string, string[]> {
