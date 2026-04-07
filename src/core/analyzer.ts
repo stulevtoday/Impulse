@@ -35,15 +35,19 @@ export async function analyzeProject(rootDir: string): Promise<FullAnalysis> {
   };
 
   let filesScanned = 0;
+  const BATCH = 20;
 
-  for (const file of scan.files) {
-    const parsed = await parseFile(rootDir, file);
-    if (!parsed) continue;
+  for (let i = 0; i < scan.files.length; i += BATCH) {
+    const batch = scan.files.slice(i, i + BATCH);
+    const results = await Promise.all(batch.map((f) => parseFile(rootDir, f)));
 
-    const { nodes, edges } = extractDependencies(parsed, ctx);
-    for (const node of nodes) graph.addNode(node);
-    for (const edge of edges) graph.addEdge(edge);
-    filesScanned++;
+    for (const parsed of results) {
+      if (!parsed) continue;
+      const { nodes, edges } = extractDependencies(parsed, ctx);
+      for (const node of nodes) graph.addNode(node);
+      for (const edge of edges) graph.addEdge(edge);
+      filesScanned++;
+    }
   }
 
   const durationMs = Math.round(performance.now() - start);

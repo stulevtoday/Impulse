@@ -1,4 +1,3 @@
-import type Parser from "tree-sitter";
 import type { ParseResult } from "./parser.js";
 import type { GraphNode, GraphEdge } from "./graph.js";
 import type { ExtractorContext, ExtractionResult } from "./types.js";
@@ -15,6 +14,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 
 let _nsCache = new Map<string, Map<string, string[]>>();
 let _typeCache = new Map<string, Map<string, string>>();
+let _typesByFileCache = new Map<string, Map<string, string[]>>();
+let _externPrefixCache = new Map<string, Set<string>>();
 
 export function extractCSharpDependencies(
   parsed: ParseResult,
@@ -28,9 +29,10 @@ export function extractCSharpDependencies(
 
   const nsMap = getNamespaceMap(ctx.rootDir);
   const typeMap = getTypeMap(ctx.rootDir, nsMap);
+  const typesByFile = getTypesByFile(ctx.rootDir, typeMap);
   const externPrefixes = getExternalPrefixes(ctx.rootDir);
-  const fileNamespace = extractNamespace(parsed.tree.rootNode);
-  const usings = extractUsings(parsed.tree.rootNode);
+  const fileNamespace = extractNamespaceFromSource(parsed.source);
+  const usings = extractUsings(parsed.source);
 
   for (const using of usings) {
     const line = using.line;
@@ -45,7 +47,7 @@ export function extractCSharpDependencies(
       continue;
     }
 
-    const targetFiles = resolveWithTypes(using.namespace, nsMap, typeMap, parsed.source, parsed.filePath);
+    const targetFiles = resolveWithTypes(using.namespace, nsMap, typesByFile, parsed.source, parsed.filePath);
     if (targetFiles.length > 0) {
       for (const target of targetFiles) {
         const targetId = `file:${target}`;
@@ -75,54 +77,24 @@ interface UsingDirective {
   line: number;
 }
 
-function extractUsings(root: Parser.SyntaxNode): UsingDirective[] {
+const USING_RE = /^\s*(?:global\s+)?using\s+(?:static\s+)?(?:\w+\s*=\s*)?([A-Za-z][\w.]*)\s*;/gm;
+const NAMESPACE_RE = /^\s*namespace\s+([\w.]+)\s*[;{]/m;
+
+function extractUsings(source: string): UsingDirective[] {
   const usings: UsingDirective[] = [];
-
-  function walk(node: Parser.SyntaxNode): void {
-    if (node.type === "using_directive") {
-      const nameNode = findNameNode(node);
-      if (nameNode) {
-        const ns = nameNode.text;
-        if (!ns.startsWith("global::")) {
-          usings.push({ namespace: ns, line: node.startPosition.row + 1 });
-        }
-      }
-      return;
-    }
-
-    for (const child of node.children) {
-      walk(child);
-    }
+  let match: RegExpExecArray | null;
+  USING_RE.lastIndex = 0;
+  while ((match = USING_RE.exec(source)) !== null) {
+    const ns = match[1];
+    const line = source.slice(0, match.index).split("\n").length;
+    usings.push({ namespace: ns, line });
   }
-
-  walk(root);
   return usings;
 }
 
-function extractNamespace(root: Parser.SyntaxNode): string | null {
-  function walk(node: Parser.SyntaxNode): string | null {
-    if (node.type === "file_scoped_namespace_declaration" || node.type === "namespace_declaration") {
-      const nameNode = findNameNode(node);
-      return nameNode?.text ?? null;
-    }
-    for (const child of node.children) {
-      const result = walk(child);
-      if (result) return result;
-    }
-    return null;
-  }
-  return walk(root);
-}
-
-function findNameNode(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
-  for (const child of node.children) {
-    if (child.type === "qualified_name" || child.type === "identifier_name" || child.type === "identifier") {
-      return child;
-    }
-    if (child.type === "name_equals") continue;
-    if (child.type === "qualified_name") return child;
-  }
-  return null;
+function extractNamespaceFromSource(source: string): string | null {
+  const match = source.match(NAMESPACE_RE);
+  return match ? match[1] : null;
 }
 
 /**
@@ -133,7 +105,7 @@ function findNameNode(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
 function resolveWithTypes(
   usingNs: string,
   nsMap: Map<string, string[]>,
-  typeMap: Map<string, string>,
+  typesByFile: Map<string, string[]>,
   source: string,
   currentFile: string,
 ): string[] {
@@ -144,7 +116,7 @@ function resolveWithTypes(
   const matched = new Set<string>();
   for (const file of filesInNs) {
     if (file === currentFile) continue;
-    const types = getTypesForFile(file, typeMap);
+    const types = typesByFile.get(file) ?? [];
     for (const typeName of types) {
       if (source.includes(typeName)) {
         matched.add(file);
@@ -157,12 +129,19 @@ function resolveWithTypes(
   return filesInNs.filter((f) => f !== currentFile);
 }
 
-function getTypesForFile(file: string, typeMap: Map<string, string>): string[] {
-  const types: string[] = [];
-  for (const [typeName, ownerFile] of typeMap) {
-    if (ownerFile === file) types.push(typeName);
+function getTypesByFile(rootDir: string, typeMap: Map<string, string>): Map<string, string[]> {
+  const cached = _typesByFileCache.get(rootDir);
+  if (cached) return cached;
+
+  const result = new Map<string, string[]>();
+  for (const [typeName, file] of typeMap) {
+    const list = result.get(file) ?? [];
+    list.push(typeName);
+    result.set(file, list);
   }
-  return types;
+
+  _typesByFileCache.set(rootDir, result);
+  return result;
 }
 
 const EXTERNAL_PREFIXES = ["System", "Microsoft", "Newtonsoft", "NLog", "Serilog", "AutoMapper", "FluentValidation", "MediatR", "Polly", "Grpc", "Google", "Npgsql", "Dapper"];
@@ -224,6 +203,9 @@ function getNamespaceMap(rootDir: string): Map<string, string[]> {
 }
 
 function getExternalPrefixes(rootDir: string): Set<string> {
+  const cached = _externPrefixCache.get(rootDir);
+  if (cached) return cached;
+
   const prefixes = new Set<string>();
 
   const csprojFiles = findFiles(rootDir, "", ".csproj");
@@ -246,6 +228,7 @@ function getExternalPrefixes(rootDir: string): Set<string> {
     }
   }
 
+  _externPrefixCache.set(rootDir, prefixes);
   return prefixes;
 }
 

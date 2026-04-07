@@ -96,6 +96,10 @@ export async function parseFile(
   try {
     const fullPath = `${rootDir}/${relativePath}`;
     const source = await readFile(fullPath, "utf-8");
+    if (language === "csharp") {
+      return { filePath: relativePath, tree: null as unknown as Parser.Tree, source, language };
+    }
+
     const parser = parserMap[language];
     const tree = parser.parse(source);
     return { filePath: relativePath, tree, source, language };
