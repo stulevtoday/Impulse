@@ -25,10 +25,16 @@ interface BranchAnalysis {
   durationMs: number;
 }
 
+interface SymbolImpact {
+  name: string;
+  affectedFiles: number;
+}
+
 interface FileImpact {
   file: string;
   affectedCount: number;
   maxDepth: number;
+  symbols: SymbolImpact[];
 }
 
 interface ImpactSummary {
@@ -159,7 +165,18 @@ function computeImpactFromGraph(
     const maxDepth = affected.length > 0
       ? Math.max(...affected.map((a) => a.depth))
       : 0;
-    return { file, affectedCount: affected.length, maxDepth };
+
+    const exports = graph.getFileExports(file);
+    const symbols: SymbolImpact[] = exports.map((exp) => {
+      const symImpact = graph.analyzeExportImpact(file, exp.name);
+      const symFiles = symImpact.affected.filter(
+        (a) => a.node.kind === "file" && !changedSet.has(a.node.filePath),
+      ).length;
+      return { name: exp.name, affectedFiles: symFiles };
+    }).filter((s) => s.affectedFiles > 0)
+      .sort((a, b) => b.affectedFiles - a.affectedFiles);
+
+    return { file, affectedCount: affected.length, maxDepth, symbols };
   });
 
   const sorted = [...allAffected.entries()].sort((a, b) => a[1].depth - b[1].depth);
@@ -286,6 +303,25 @@ function generateReport(
       if (withImpact.length > 15) {
         lines.push(`| *...${withImpact.length - 15} more* | | |`);
       }
+      lines.push("");
+    }
+
+    const filesWithSymbols = withImpact.filter((f) => f.symbols.length > 1);
+    if (filesWithSymbols.length > 0) {
+      lines.push("<details>");
+      lines.push("<summary>🔬 Symbol-level breakdown</summary>");
+      lines.push("");
+      for (const f of filesWithSymbols.slice(0, 10)) {
+        lines.push(`**\`${f.file}\`** (${f.affectedCount} at file level)`);
+        lines.push("");
+        lines.push("| Export | Affected |");
+        lines.push("|---|---|");
+        for (const sym of f.symbols.slice(0, 15)) {
+          lines.push(`| \`${sym.name}\` | ${sym.affectedFiles} |`);
+        }
+        lines.push("");
+      }
+      lines.push("</details>");
       lines.push("");
     }
 
