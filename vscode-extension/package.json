@@ -1,0 +1,52 @@
+{
+  "name": "impulse-vscode",
+  "displayName": "Impulse",
+  "description": "Know what breaks before it breaks. Live dependency impact analysis.",
+  "version": "0.1.0",
+  "publisher": "stulevtoday",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "impulse.showImpact",
+        "title": "Impulse: Show Impact of Current File"
+      },
+      {
+        "command": "impulse.showDependencies",
+        "title": "Impulse: Show Dependencies"
+      },
+      {
+        "command": "impulse.showDependents",
+        "title": "Impulse: Show Dependents (Who Imports This?)"
+      }
+    ],
+    "configuration": {
+      "title": "Impulse",
+      "properties": {
+        "impulse.daemonPort": {
+          "type": "number",
+          "default": 4096,
+          "description": "Port of the Impulse daemon"
+        },
+        "impulse.showImpactOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show impact analysis notification when saving a file"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.7.3"
+  }
+}

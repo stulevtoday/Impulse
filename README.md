@@ -98,23 +98,64 @@ node dist/cli/index.js graph /path/to/your/project
 
 **Analyzer** runs BFS traversal on reverse edges to compute transitive impact.
 
+### Watch for changes in real-time
+
+```bash
+node dist/cli/index.js watch /path/to/your/project
+```
+
+```
+  [16:48:37] Changed: src/services/api.ts
+           Impact: 32 file(s) affected
+             → src/components/AppShell.tsx
+             → src/pages/PartsPage.tsx
+             ...and 30 more
+           Graph: 1361 nodes, 372 edges
+```
+
+### Start the daemon (HTTP API)
+
+```bash
+node dist/cli/index.js daemon /path/to/your/project
+```
+
+```
+  Daemon listening on http://localhost:4096
+  Endpoints: /status /impact /graph /files /dependencies /dependents /warnings
+```
+
+### Analyze environment variables
+
+```bash
+node dist/cli/index.js env /path/to/your/project
+```
+
+```
+  ⚠ Used in code but NOT in any .env file (1):
+    ELECTRON_RENDERER_URL
+      ← src/main/index.ts
+```
+
 ## Currently Supports
 
 - TypeScript (`.ts`, `.mts`, `.cts`)
 - TSX (`.tsx`)
 - JavaScript (`.js`, `.mjs`, `.cjs`, `.jsx`)
 - Static imports, dynamic imports, `require()`, re-exports
+- `tsconfig.json` path aliases (`@/*` etc.)
+- `process.env.X` tracking + `.env` file analysis
+- Incremental watch mode with real-time impact
+- HTTP daemon with JSON API
+- VS Code extension (in `vscode-extension/`)
+- Graph caching for instant daemon startup
 
 ## Roadmap
 
-- [ ] Watch mode — live graph updates on file changes
-- [ ] Daemon with Unix socket API
-- [ ] VS Code extension
-- [ ] Path alias resolution (`tsconfig.json` paths)
-- [ ] Barrel file (`index.ts`) deep resolution
 - [ ] Python support
 - [ ] Go support
 - [ ] Interactive graph visualization
+- [ ] Config file change tracking (tsconfig, package.json)
+- [ ] Unix socket for daemon
 
 ## The Story
 

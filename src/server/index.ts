@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { analyzeProject, getFileImpact, updateFile } from "../core/analyzer.js";
 import { getParseWarnings } from "../core/parser.js";
 import { createWatcher } from "../watchers/fs-watcher.js";
+import { loadGraphCache, saveGraphCache } from "../core/cache.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -156,7 +157,15 @@ export async function startDaemon(
   port: number,
 ): Promise<void> {
   const absRoot = resolve(rootDir);
-  console.log(`\n  Impulse daemon — indexing ${absRoot}...\n`);
+  console.log(`\n  Impulse daemon — starting for ${absRoot}\n`);
+
+  const cached = await loadGraphCache(absRoot);
+  if (cached) {
+    const age = Math.round((Date.now() - cached.meta.timestamp) / 1000);
+    console.log(
+      `  Cache hit: ${cached.meta.fileCount} files (${age}s old). Loading instantly...`,
+    );
+  }
 
   const { graph, ctx, stats } = await analyzeProject(absRoot);
   state = { graph, ctx, rootDir: absRoot, ready: true };
@@ -165,22 +174,35 @@ export async function startDaemon(
     `  Indexed: ${stats.filesScanned} files, ${stats.nodeCount} nodes, ${stats.edgeCount} edges (${stats.durationMs}ms)`,
   );
 
+  await saveGraphCache(absRoot, graph).catch(() => {});
+
   const warnings = getParseWarnings();
   if (warnings.length > 0) {
     console.log(`  ⚠ ${warnings.length} file(s) could not be parsed`);
   }
+
+  let saveTimer: NodeJS.Timeout | null = null;
+  const debounceSave = () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveGraphCache(absRoot, graph).catch(() => {});
+    }, 5000);
+  };
 
   createWatcher(absRoot, graph, ctx, {
     onChange(filePath, affected) {
       console.log(
         `  [${ts()}] ${filePath} changed → ${affected.length} affected`,
       );
+      debounceSave();
     },
     onAdd(filePath) {
       console.log(`  [${ts()}] ${filePath} added`);
+      debounceSave();
     },
     onRemove(filePath) {
       console.log(`  [${ts()}] ${filePath} removed`);
+      debounceSave();
     },
   });
 
