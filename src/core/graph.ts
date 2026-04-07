@@ -180,8 +180,14 @@ export class DependencyGraph {
 
   get stats() {
     let edgeCount = 0;
+    let fileCount = 0;
+    let exportCount = 0;
     for (const edges of this.forwardEdges.values()) edgeCount += edges.length;
-    return { nodes: this.nodes.size, edges: edgeCount };
+    for (const node of this.nodes.values()) {
+      if (node.kind === "file") fileCount++;
+      else if (node.kind === "export") exportCount++;
+    }
+    return { nodes: this.nodes.size, edges: edgeCount, files: fileCount, exports: exportCount };
   }
 
   allNodes(): GraphNode[] {
