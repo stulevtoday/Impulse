@@ -51,9 +51,9 @@ export interface HealthReport {
 
 export function analyzeHealth(graph: DependencyGraph): HealthReport {
   const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
-  const edges = graph.allEdges();
-  const localEdges = edges.filter((e) => !e.to.startsWith("external:"));
-  const externalEdges = edges.filter((e) => e.to.startsWith("external:"));
+  const importEdges = graph.allEdges().filter((e) => e.kind === "imports");
+  const localEdges = importEdges.filter((e) => !e.to.startsWith("external:"));
+  const externalEdges = importEdges.filter((e) => e.to.startsWith("external:"));
 
   const cycles = detectCycles(graph, fileNodes);
   const godFiles = findGodFiles(graph, fileNodes);
@@ -102,6 +102,7 @@ function detectCycles(graph: DependencyGraph, fileNodes: GraphNode[]): CircularD
 
     const deps = graph.getDependencies(nodeId);
     for (const edge of deps) {
+      if (edge.kind !== "imports") continue;
       if (edge.to.startsWith("external:")) continue;
       dfs(edge.to);
     }
@@ -131,7 +132,7 @@ function normalizeCycle(cycle: string[]): string[] {
 function findGodFiles(graph: DependencyGraph, fileNodes: GraphNode[]): GodFile[] {
   return fileNodes
     .map((n) => {
-      const imports = graph.getDependencies(n.id).filter((e) => !e.to.startsWith("external:")).length;
+      const imports = graph.getDependencies(n.id).filter((e) => e.kind === "imports" && !e.to.startsWith("external:")).length;
       const importedBy = graph.getDependents(n.id).filter((e) => e.kind === "imports").length;
       return {
         file: n.filePath,
@@ -170,7 +171,7 @@ function longestPath(
   if (visited.has(nodeId)) return { depth: 0, chain: [] };
   visited.add(nodeId);
 
-  const deps = graph.getDependencies(nodeId).filter((e) => !e.to.startsWith("external:"));
+  const deps = graph.getDependencies(nodeId).filter((e) => e.kind === "imports" && !e.to.startsWith("external:"));
   let maxDepth = 0;
   let maxChain: string[] = [];
 
@@ -204,7 +205,7 @@ function computeStats(
   externalEdges: { from: string; to: string }[],
 ) {
   const importCounts = fileNodes.map(
-    (n) => graph.getDependencies(n.id).filter((e) => !e.to.startsWith("external:")).length,
+    (n) => graph.getDependencies(n.id).filter((e) => e.kind === "imports" && !e.to.startsWith("external:")).length,
   );
   const importedByCounts = fileNodes.map(
     (n) => graph.getDependents(n.id).filter((e) => e.kind === "imports").length,
