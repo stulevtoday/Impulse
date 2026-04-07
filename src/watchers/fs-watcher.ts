@@ -4,7 +4,7 @@ import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/types.js";
 import { updateFile, getFileImpact } from "../core/analyzer.js";
 
-export interface WatcherCallbacks {
+interface WatcherCallbacks {
   onReady?: () => void;
   onChange?: (filePath: string, affected: string[]) => void;
   onAdd?: (filePath: string) => void;

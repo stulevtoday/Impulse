@@ -5,7 +5,7 @@ import { DependencyGraph, type SerializedGraph } from "./graph.js";
 const CACHE_DIR = ".impulse";
 const CACHE_FILE = "graph.json";
 
-export interface CacheMetadata {
+interface CacheMetadata {
   version: number;
   rootDir: string;
   timestamp: number;

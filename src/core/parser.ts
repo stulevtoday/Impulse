@@ -21,7 +21,7 @@ goParser.setLanguage(Go);
 const rustParser = new Parser();
 rustParser.setLanguage(Rust);
 
-export type Language = "typescript" | "tsx" | "python" | "go" | "rust";
+type Language = "typescript" | "tsx" | "python" | "go" | "rust";
 
 export interface ParseResult {
   filePath: string;

@@ -9,7 +9,7 @@ import { getVisualizationHTML } from "./visualize.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
-export interface DaemonState {
+interface DaemonState {
   graph: DependencyGraph;
   ctx: ExtractorContext;
   rootDir: string;
