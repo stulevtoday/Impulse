@@ -24,25 +24,25 @@ npm install
 npm run build
 ```
 
-### Scan a project
+## Commands
+
+### `scan` — Build the dependency graph
 
 ```bash
-node dist/cli/index.js scan /path/to/your/project
+node dist/cli/index.js scan /path/to/project
 ```
 
 ```
-  Impulse — scanning /path/to/your/project
-
-  Files scanned:  7
-  Nodes in graph: 49
-  Edges in graph: 24
-  Time:           22ms
+  Files scanned:  303
+  Nodes in graph: 533
+  Edges in graph: 1689
+  Time:           383ms
 ```
 
-### See what breaks
+### `impact` — What breaks if I change this file?
 
 ```bash
-node dist/cli/index.js impact src/core/graph.ts /path/to/your/project
+node dist/cli/index.js impact src/core/graph.ts .
 ```
 
 ```
@@ -53,121 +53,127 @@ node dist/cli/index.js impact src/core/graph.ts /path/to/your/project
     → src/core/index.ts  (direct)
       → src/cli/index.ts  (depth 2)
 
-  Total: 4 affected nodes
+  Total: 15 affected nodes
 ```
 
-### View the full graph
+### `diff` — Impact of your uncommitted changes
 
 ```bash
-node dist/cli/index.js graph /path/to/your/project
+node dist/cli/index.js diff .
 ```
 
 ```
-  src/cli/index.ts       →  src/core/index.ts
-  src/core/analyzer.ts   →  src/core/graph.ts
-  src/core/analyzer.ts   →  src/core/scanner.ts
-  src/core/analyzer.ts   →  src/core/parser.ts
-  src/core/extractor.ts  →  src/core/graph.ts
-  src/core/parser.ts     →  tree-sitter [external]
-  ...
+  Changed files (1):
+    ● src/core/graph.ts
+
+  Affected files (15):
+    → src/core/analyzer.ts  (direct, via src/core/graph.ts)
+    → src/core/cache.ts  (direct, via src/core/graph.ts)
+    → src/core/extractor.ts  (direct, via src/core/graph.ts)
+    ...
 ```
+
+### `health` — Architecture health scoring
+
+```bash
+node dist/cli/index.js health .
+```
+
+```
+  Score: 87/100 (B)
+  1 god file(s), max chain depth 8
+
+  Penalties:
+    God files:         -5
+    Deep chains:       -8
+```
+
+Cycles classified by severity: `tight-couple` (2 files, -3), `short-ring` (3-4, -8), `long-ring` (5+, -15).
+
+### `exports` — Dead export detection
+
+```bash
+node dist/cli/index.js exports .
+```
+
+```
+  src/core/graph.ts  (7 exports)
+    ✓ DependencyGraph  — 8 user(s)
+    ✓ GraphNode  — 8 user(s)
+    ✓ GraphEdge  — 6 user(s)
+
+  src/core/index.ts  [barrel]  (24 exports)
+    ✓ analyzeProject  — 1 user(s)
+    ↗ GraphNode  — re-export (public API)
+    ...
+
+  Total: 79 exports, 15 dead, 20 barrel re-exports
+```
+
+### `visualize` — Interactive graph in the browser
+
+```bash
+node dist/cli/index.js visualize .
+```
+
+Opens a D3.js force-directed graph in your browser. Nodes colored by directory, sized by connections. Click a node to see impact ripple through its dependents.
+
+### `watch` — Real-time file change tracking
+
+```bash
+node dist/cli/index.js watch .
+```
+
+### `daemon` — HTTP API for IDE integration
+
+```bash
+node dist/cli/index.js daemon .
+```
+
+Endpoints: `/status` `/impact?file=` `/graph` `/files` `/dependencies?file=` `/dependents?file=` `/health` `/exports` `/warnings` `/visualize`
+
+### Other commands
+
+- `graph` — Show the full edge list
+- `why <from> <to>` — Find the dependency chain between two files
+- `env` — Analyze environment variable usage
+- `explore` — Interactive terminal REPL
+
+### JSON output
+
+All analysis commands support `--json` for piping and scripting:
+
+```bash
+node dist/cli/index.js health . --json | jq '.score'
+node dist/cli/index.js diff . --json
+node dist/cli/index.js scan . --json
+```
+
+## Languages
+
+| Language | Resolution | Config |
+|---|---|---|
+| TypeScript/JavaScript | `import`/`require`/re-exports, path aliases | `tsconfig.json` |
+| Python | `import`/`from`, relative imports, source roots | — |
+| Go | Package imports → file-level edges | `go.mod` |
+| Rust | `mod` declarations, `use crate::`/`super::`/`self::` | `Cargo.toml` |
+| C# | Namespace-based with type-aware resolution | `.csproj` |
 
 ## How It Works
 
 ```
  Your Project          Impulse Engine          You
 ┌────────────┐    ┌──────────────────┐    ┌──────────┐
-│ .ts .tsx    │───▶│ Tree-sitter AST  │    │          │
-│ .js .jsx    │    │       ↓          │    │ "I'm     │
-│ configs     │    │ Extract imports, │    │  changing │
-│ routes      │    │ exports, calls   │───▶│  X..."   │
+│ .ts .py     │───▶│ Tree-sitter AST  │    │          │
+│ .go .rs     │    │       ↓          │    │ "I'm     │
+│ .cs .jsx    │    │ Extract imports, │    │  changing │
+│ configs     │    │ exports, symbols │───▶│  X..."   │
 │             │    │       ↓          │    │          │
 │             │    │ Dependency Graph │    │ "Y and Z │
 │             │    │       ↓          │    │  will    │
 │             │    │ Impact Analysis  │    │  break." │
 └────────────┘    └──────────────────┘    └──────────┘
 ```
-
-**Scanner** walks your project, respects `.gitignore`, finds source files.
-
-**Parser** uses [Tree-sitter](https://tree-sitter.github.io/) to build ASTs — fast, incremental, language-agnostic.
-
-**Extractor** pulls out relationships: imports, re-exports, dynamic imports, require calls.
-
-**Graph** stores everything as a directed dependency graph with forward and reverse edges.
-
-**Analyzer** runs BFS traversal on reverse edges to compute transitive impact.
-
-### Watch for changes in real-time
-
-```bash
-node dist/cli/index.js watch /path/to/your/project
-```
-
-```
-  [16:48:37] Changed: src/services/api.ts
-           Impact: 32 file(s) affected
-             → src/components/AppShell.tsx
-             → src/pages/PartsPage.tsx
-             ...and 30 more
-           Graph: 1361 nodes, 372 edges
-```
-
-### Start the daemon (HTTP API)
-
-```bash
-node dist/cli/index.js daemon /path/to/your/project
-```
-
-```
-  Daemon listening on http://localhost:4096
-  Endpoints: /status /impact /graph /files /dependencies /dependents /warnings
-```
-
-### Analyze environment variables
-
-```bash
-node dist/cli/index.js env /path/to/your/project
-```
-
-```
-  ⚠ Used in code but NOT in any .env file (1):
-    ELECTRON_RENDERER_URL
-      ← src/main/index.ts
-```
-
-## Currently Supports
-
-- TypeScript (`.ts`, `.mts`, `.cts`)
-- TSX (`.tsx`)
-- JavaScript (`.js`, `.mjs`, `.cjs`, `.jsx`)
-- Python (`.py`) — import/from-import, relative imports, auto source root detection
-- Go (`.go`) — `go.mod` module resolution, package-level imports → file-level edges
-- Rust (`.rs`) — `mod` declarations, `use crate::`/`super::`/`self::` resolution, `Cargo.toml` dependency detection
-- Static imports, dynamic imports, `require()`, re-exports
-- `tsconfig.json` path aliases (`@/*` etc.)
-- `process.env.X` tracking + `.env` file analysis
-- Incremental watch mode with real-time impact
-- HTTP daemon with JSON API
-- Architecture health scoring with cycle severity classification
-- VS Code extension (in `vscode-extension/`)
-- Graph caching for instant daemon startup
-
-### Visualize the graph
-
-```bash
-node dist/cli/index.js daemon /path/to/your/project
-# Open http://localhost:4096/visualize in your browser
-```
-
-Interactive D3.js force-directed graph — color-coded by directory, sized by connections. Click any node to see its impact radius. Search to filter.
-
-## Roadmap
-
-- [ ] Config file change tracking (tsconfig, package.json, go.mod)
-- [ ] Unix socket for daemon
-- [ ] C/C++ support
-- [ ] Symbol-level dependency tracking (export → import mapping)
 
 ## The Story
 
