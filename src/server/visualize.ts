@@ -54,11 +54,18 @@ svg { width: 100vw; height: 100vh; display: block; }
 .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
 .node { cursor: pointer; transition: opacity 0.3s; }
-.link { stroke-opacity: 0.15; transition: stroke-opacity 0.3s; }
+.node text {
+  paint-order: stroke;
+  stroke: #0a0a12;
+  stroke-width: 3px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.link { stroke-opacity: 0.2; transition: stroke-opacity 0.3s; }
 .dimmed .node { opacity: 0.08; }
 .dimmed .link { stroke-opacity: 0.03; }
 .dimmed .node.highlighted { opacity: 1; }
-.dimmed .link.highlighted { stroke-opacity: 0.5; }
+.dimmed .link.highlighted { stroke-opacity: 0.6; }
 </style>
 </head>
 <body>
@@ -154,6 +161,19 @@ async function main() {
   const height = window.innerHeight;
 
   const svg = d3.select("svg");
+
+  svg.append("defs").append("marker")
+    .attr("id", "arrow")
+    .attr("viewBox", "0 0 10 6")
+    .attr("refX", 10)
+    .attr("refY", 3)
+    .attr("markerWidth", 7)
+    .attr("markerHeight", 5)
+    .attr("orient", "auto")
+    .append("path")
+    .attr("d", "M0,0 L10,3 L0,6Z")
+    .attr("fill", "#4a4a6a");
+
   const g = svg.append("g");
 
   svg.call(d3.zoom()
@@ -167,7 +187,8 @@ async function main() {
     .join("line")
     .attr("class", "link")
     .attr("stroke", "#3a3a5a")
-    .attr("stroke-width", 1);
+    .attr("stroke-width", 1)
+    .attr("marker-end", "url(#arrow)");
 
   const node = g.append("g")
     .selectAll("g")
@@ -244,16 +265,22 @@ async function main() {
   });
 
   const sim = d3.forceSimulation(nodes)
-    .force("link", d3.forceLink(links).id(d => d.id).distance(70))
-    .force("charge", d3.forceManyBody().strength(-180))
+    .force("link", d3.forceLink(links).id(d => d.id).distance(90))
+    .force("charge", d3.forceManyBody().strength(-280))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collision", d3.forceCollide().radius(d => d.radius + 3))
+    .force("collision", d3.forceCollide().radius(d => d.radius + 5))
     .on("tick", () => {
-      link
-        .attr("x1", d => d.source.x)
-        .attr("y1", d => d.source.y)
-        .attr("x2", d => d.target.x)
-        .attr("y2", d => d.target.y);
+      link.each(function(d) {
+        const dx = d.target.x - d.source.x;
+        const dy = d.target.y - d.source.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const tr = (d.target.radius || 6) + 4;
+        d3.select(this)
+          .attr("x1", d.source.x)
+          .attr("y1", d.source.y)
+          .attr("x2", d.target.x - (dx / dist) * tr)
+          .attr("y2", d.target.y - (dy / dist) * tr);
+      });
       node.attr("transform", d => "translate(" + d.x + "," + d.y + ")");
     });
 }
