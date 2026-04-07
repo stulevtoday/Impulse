@@ -275,7 +275,7 @@ async function main() {
             .classed("ripple", false)
             .each(function() { this.offsetWidth; })
             .classed("ripple", true);
-          link.filter(l => affectedIds.has(l.source.id) && affectedIds.has(l.target.id) && ids.has(l.target.id))
+          link.filter(l => affectedIds.has(l.source.id) && affectedIds.has(l.target.id) && ids.has(l.source.id))
             .classed("highlighted", true);
         }, depth * 400);
       }
