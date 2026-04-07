@@ -1,6 +1,7 @@
 import type Parser from "tree-sitter";
 import type { ParseResult } from "./parser.js";
 import type { GraphNode, GraphEdge } from "./graph.js";
+import type { PathAlias } from "./tsconfig.js";
 import { dirname, resolve, relative, extname } from "node:path";
 
 export interface ExtractionResult {
@@ -8,14 +9,14 @@ export interface ExtractionResult {
   edges: GraphEdge[];
 }
 
-/**
- * Extract dependency relationships from a parsed TypeScript/TSX file.
- * Uses AST traversal rather than Tree-sitter query files for v0.1 simplicity.
- * Can migrate to .scm query files later for better language extensibility.
- */
+export interface ExtractorContext {
+  rootDir: string;
+  aliases: PathAlias[];
+}
+
 export function extractDependencies(
   parsed: ParseResult,
-  rootDir: string,
+  ctx: ExtractorContext,
 ): ExtractionResult {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
@@ -28,7 +29,7 @@ export function extractDependencies(
     name: parsed.filePath,
   });
 
-  visitNode(parsed.tree.rootNode, parsed, rootDir, fileId, nodes, edges);
+  visitNode(parsed.tree.rootNode, parsed, ctx, fileId, nodes, edges);
 
   return { nodes, edges };
 }
@@ -36,32 +37,32 @@ export function extractDependencies(
 function visitNode(
   node: Parser.SyntaxNode,
   parsed: ParseResult,
-  rootDir: string,
+  ctx: ExtractorContext,
   fileId: string,
   nodes: GraphNode[],
   edges: GraphEdge[],
 ): void {
   switch (node.type) {
     case "import_statement":
-      handleImport(node, parsed, rootDir, fileId, nodes, edges);
+      handleImport(node, parsed, ctx, fileId, nodes, edges);
       break;
     case "export_statement":
-      handleExportOrReexport(node, parsed, rootDir, fileId, nodes, edges);
+      handleExportOrReexport(node, parsed, ctx, fileId, nodes, edges);
       break;
     case "call_expression":
-      handleDynamicImportOrRequire(node, parsed, rootDir, fileId, nodes, edges);
+      handleDynamicImportOrRequire(node, parsed, ctx, fileId, nodes, edges);
       break;
   }
 
   for (const child of node.children) {
-    visitNode(child, parsed, rootDir, fileId, nodes, edges);
+    visitNode(child, parsed, ctx, fileId, nodes, edges);
   }
 }
 
 function handleImport(
   node: Parser.SyntaxNode,
   parsed: ParseResult,
-  rootDir: string,
+  ctx: ExtractorContext,
   fileId: string,
   nodes: GraphNode[],
   edges: GraphEdge[],
@@ -70,7 +71,7 @@ function handleImport(
   if (!sourceNode) return;
 
   const raw = stripQuotes(sourceNode.text);
-  const resolvedPath = resolveImportPath(raw, parsed.filePath, rootDir);
+  const resolvedPath = resolveImportPath(raw, parsed.filePath, ctx);
   const targetId = resolvedPath ? `file:${resolvedPath}` : `external:${raw}`;
 
   if (resolvedPath) {
@@ -105,7 +106,7 @@ function handleImport(
 function handleExportOrReexport(
   node: Parser.SyntaxNode,
   parsed: ParseResult,
-  rootDir: string,
+  ctx: ExtractorContext,
   fileId: string,
   nodes: GraphNode[],
   edges: GraphEdge[],
@@ -113,7 +114,7 @@ function handleExportOrReexport(
   const sourceNode = node.children.find((c) => c.type === "string");
   if (sourceNode) {
     const raw = stripQuotes(sourceNode.text);
-    const resolvedPath = resolveImportPath(raw, parsed.filePath, rootDir);
+    const resolvedPath = resolveImportPath(raw, parsed.filePath, ctx);
     const targetId = resolvedPath ? `file:${resolvedPath}` : `external:${raw}`;
 
     if (resolvedPath) {
@@ -162,7 +163,7 @@ function handleExportOrReexport(
 function handleDynamicImportOrRequire(
   node: Parser.SyntaxNode,
   parsed: ParseResult,
-  rootDir: string,
+  ctx: ExtractorContext,
   fileId: string,
   nodes: GraphNode[],
   edges: GraphEdge[],
@@ -182,7 +183,7 @@ function handleDynamicImportOrRequire(
   if (!target) return;
 
   const raw = stripQuotes(target.text);
-  const resolvedPath = resolveImportPath(raw, parsed.filePath, rootDir);
+  const resolvedPath = resolveImportPath(raw, parsed.filePath, ctx);
   const targetId = resolvedPath ? `file:${resolvedPath}` : `external:${raw}`;
 
   if (resolvedPath) {
@@ -244,26 +245,53 @@ const IMPLICIT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs"];
 function resolveImportPath(
   specifier: string,
   fromFile: string,
-  _rootDir: string,
+  ctx: ExtractorContext,
 ): string | null {
-  if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
-    return null;
+  if (specifier.startsWith(".") || specifier.startsWith("/")) {
+    return resolveRelativePath(specifier, fromFile);
   }
 
+  return resolveAliasPath(specifier, ctx);
+}
+
+function resolveRelativePath(
+  specifier: string,
+  fromFile: string,
+): string | null {
   const fromDir = dirname(fromFile);
   const raw = resolve("/", fromDir, specifier);
   const rel = raw.startsWith("/") ? raw.slice(1) : raw;
+  return applyExtension(rel);
+}
 
+function resolveAliasPath(
+  specifier: string,
+  ctx: ExtractorContext,
+): string | null {
+  for (const alias of ctx.aliases) {
+    if (!specifier.startsWith(alias.prefix)) continue;
+
+    const remainder = specifier.slice(alias.prefix.length);
+    for (const target of alias.paths) {
+      const abs = resolve(target, remainder);
+      const rel = relative(ctx.rootDir, abs);
+      if (rel.startsWith("..")) continue;
+      return applyExtension(rel);
+    }
+  }
+
+  return null;
+}
+
+function applyExtension(rel: string): string {
   const ext = extname(rel);
   if (ext && JS_TO_TS[ext]) {
     const base = rel.slice(0, -ext.length);
     return `${base}${JS_TO_TS[ext][0]}`;
   }
-
   if (!ext) {
     return `${rel}${IMPLICIT_EXTENSIONS[0]}`;
   }
-
   return rel;
 }
 

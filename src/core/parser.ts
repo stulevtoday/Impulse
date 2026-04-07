@@ -35,6 +35,21 @@ function getLanguage(filePath: string): "typescript" | "tsx" | null {
   }
 }
 
+export interface ParseWarning {
+  filePath: string;
+  error: string;
+}
+
+const warnings: ParseWarning[] = [];
+
+export function getParseWarnings(): ParseWarning[] {
+  return [...warnings];
+}
+
+export function clearParseWarnings(): void {
+  warnings.length = 0;
+}
+
 export async function parseFile(
   rootDir: string,
   relativePath: string,
@@ -42,10 +57,17 @@ export async function parseFile(
   const language = getLanguage(relativePath);
   if (!language) return null;
 
-  const fullPath = `${rootDir}/${relativePath}`;
-  const source = await readFile(fullPath, "utf-8");
-  const parser = language === "tsx" ? tsxParser : tsParser;
-  const tree = parser.parse(source);
-
-  return { filePath: relativePath, tree, source, language };
+  try {
+    const fullPath = `${rootDir}/${relativePath}`;
+    const source = await readFile(fullPath, "utf-8");
+    const parser = language === "tsx" ? tsxParser : tsParser;
+    const tree = parser.parse(source);
+    return { filePath: relativePath, tree, source, language };
+  } catch (err) {
+    warnings.push({
+      filePath: relativePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }

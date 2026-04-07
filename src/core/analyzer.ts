@@ -1,35 +1,46 @@
 import { DependencyGraph, type ImpactResult } from "./graph.js";
 import { scanProject } from "./scanner.js";
-import { parseFile } from "./parser.js";
-import { extractDependencies } from "./extractor.js";
+import { parseFile, getParseWarnings, clearParseWarnings } from "./parser.js";
+import { extractDependencies, type ExtractorContext } from "./extractor.js";
+import { loadTsConfigAliases } from "./tsconfig.js";
 
 export interface AnalysisStats {
   filesScanned: number;
+  filesFailed: number;
   nodeCount: number;
   edgeCount: number;
   durationMs: number;
+  aliases: number;
 }
 
 export interface FullAnalysis {
   graph: DependencyGraph;
   stats: AnalysisStats;
+  ctx: ExtractorContext;
 }
 
-/**
- * Build a complete dependency graph for a project directory.
- */
 export async function analyzeProject(rootDir: string): Promise<FullAnalysis> {
   const start = performance.now();
   const graph = new DependencyGraph();
+  clearParseWarnings();
 
-  const scan = await scanProject(rootDir);
+  const [scan, tsConfig] = await Promise.all([
+    scanProject(rootDir),
+    loadTsConfigAliases(rootDir),
+  ]);
+
+  const ctx: ExtractorContext = {
+    rootDir,
+    aliases: tsConfig.aliases,
+  };
+
   let filesScanned = 0;
 
   for (const file of scan.files) {
     const parsed = await parseFile(rootDir, file);
     if (!parsed) continue;
 
-    const { nodes, edges } = extractDependencies(parsed, rootDir);
+    const { nodes, edges } = extractDependencies(parsed, ctx);
     for (const node of nodes) graph.addNode(node);
     for (const edge of edges) graph.addEdge(edge);
     filesScanned++;
@@ -37,34 +48,37 @@ export async function analyzeProject(rootDir: string): Promise<FullAnalysis> {
 
   const durationMs = Math.round(performance.now() - start);
   const { nodes: nodeCount, edges: edgeCount } = graph.stats;
+  const filesFailed = getParseWarnings().length;
 
   return {
     graph,
-    stats: { filesScanned, nodeCount, edgeCount, durationMs },
+    ctx,
+    stats: {
+      filesScanned,
+      filesFailed,
+      nodeCount,
+      edgeCount,
+      durationMs,
+      aliases: tsConfig.aliases.length,
+    },
   };
 }
 
-/**
- * Re-analyze a single file and update the graph incrementally.
- */
 export async function updateFile(
   graph: DependencyGraph,
-  rootDir: string,
+  ctx: ExtractorContext,
   filePath: string,
 ): Promise<void> {
   graph.removeFileNodes(filePath);
 
-  const parsed = await parseFile(rootDir, filePath);
+  const parsed = await parseFile(ctx.rootDir, filePath);
   if (!parsed) return;
 
-  const { nodes, edges } = extractDependencies(parsed, rootDir);
+  const { nodes, edges } = extractDependencies(parsed, ctx);
   for (const node of nodes) graph.addNode(node);
   for (const edge of edges) graph.addEdge(edge);
 }
 
-/**
- * Analyze impact of changing a specific file.
- */
 export function getFileImpact(
   graph: DependencyGraph,
   filePath: string,

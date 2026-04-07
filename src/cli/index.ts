@@ -2,7 +2,7 @@
 
 import { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject, getFileImpact } from "../core/index.js";
+import { analyzeProject, getFileImpact, getParseWarnings } from "../core/index.js";
 
 const program = new Command();
 
@@ -10,6 +10,17 @@ program
   .name("impulse")
   .description("Understand your project. Know what breaks before it breaks.")
   .version("0.1.0");
+
+function printWarnings(): void {
+  const warnings = getParseWarnings();
+  if (warnings.length > 0) {
+    console.log(`  ⚠ ${warnings.length} file(s) could not be parsed:`);
+    for (const w of warnings) {
+      console.log(`    ${w.filePath}: ${w.error}`);
+    }
+    console.log();
+  }
+}
 
 program
   .command("scan")
@@ -22,20 +33,37 @@ program
     const { graph, stats } = await analyzeProject(rootDir);
 
     console.log(`  Files scanned:  ${stats.filesScanned}`);
+    if (stats.filesFailed > 0) {
+      console.log(`  Files failed:   ${stats.filesFailed}`);
+    }
+    console.log(`  Path aliases:   ${stats.aliases}`);
     console.log(`  Nodes in graph: ${stats.nodeCount}`);
     console.log(`  Edges in graph: ${stats.edgeCount}`);
     console.log(`  Time:           ${stats.durationMs}ms\n`);
 
-    const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
+    printWarnings();
+
+    const fileNodes = graph
+      .allNodes()
+      .filter((n) => n.kind === "file")
+      .sort((a, b) => {
+        const aDeps = graph.getDependencies(a.id).length;
+        const bDeps = graph.getDependencies(b.id).length;
+        return bDeps - aDeps;
+      });
+
     if (fileNodes.length > 0) {
-      console.log("  Files in graph:");
-      for (const node of fileNodes.slice(0, 30)) {
-        const deps = graph.getDependencies(node.id);
-        const depCount = deps.filter((e) => e.kind === "imports").length;
-        console.log(`    ${node.filePath}  (${depCount} imports)`);
+      console.log("  Files (sorted by import count):");
+      for (const node of fileNodes.slice(0, 40)) {
+        const deps = graph.getDependencies(node.id).filter((e) => e.kind === "imports");
+        const localDeps = deps.filter((e) => !e.to.startsWith("external:")).length;
+        const extDeps = deps.filter((e) => e.to.startsWith("external:")).length;
+        console.log(
+          `    ${node.filePath}  (${localDeps} local, ${extDeps} external)`,
+        );
       }
-      if (fileNodes.length > 30) {
-        console.log(`    ...and ${fileNodes.length - 30} more\n`);
+      if (fileNodes.length > 40) {
+        console.log(`    ...and ${fileNodes.length - 40} more`);
       }
     }
 
@@ -78,11 +106,16 @@ program
   .command("graph")
   .description("Show the full dependency graph as an edge list")
   .argument("[dir]", "Project root directory", ".")
-  .action(async (dir: string) => {
+  .option("--local", "Only show local dependencies, hide external", false)
+  .action(async (dir: string, opts: { local: boolean }) => {
     const rootDir = resolve(dir);
 
     const { graph, stats } = await analyzeProject(rootDir);
-    const edges = graph.allEdges();
+    let edges = graph.allEdges();
+
+    if (opts.local) {
+      edges = edges.filter((e) => !e.to.startsWith("external:"));
+    }
 
     console.log(`\n  Impulse — dependency graph for ${rootDir}\n`);
     console.log(`  ${stats.nodeCount} nodes, ${stats.edgeCount} edges\n`);
@@ -90,11 +123,64 @@ program
     for (const edge of edges) {
       const from = edge.from.replace(/^file:/, "");
       const to = edge.to.replace(/^(file:|external:)/, "");
-      const label = edge.to.startsWith("external:") ? " [external]" : "";
+      const label = edge.to.startsWith("external:") ? " [ext]" : "";
       console.log(`  ${from}  →  ${to}${label}`);
     }
 
     console.log();
   });
+
+program
+  .command("why")
+  .description("Show why file A depends on file B (the full chain)")
+  .argument("<from>", "Source file (the one that might break)")
+  .argument("<to>", "Target file (the one being changed)")
+  .argument("[dir]", "Project root directory", ".")
+  .action(async (from: string, to: string, dir: string) => {
+    const rootDir = resolve(dir);
+    console.log(`\n  Impulse — why does ${from} depend on ${to}?\n`);
+
+    const { graph } = await analyzeProject(rootDir);
+    const path = findPath(graph, `file:${from}`, `file:${to}`);
+
+    if (!path) {
+      console.log(`  No dependency path found from ${from} to ${to}.\n`);
+      return;
+    }
+
+    console.log("  Dependency chain:\n");
+    for (let i = 0; i < path.length; i++) {
+      const label = path[i].replace(/^file:/, "");
+      const prefix = i === 0 ? "  " : "    → ";
+      console.log(`${prefix}${label}`);
+    }
+    console.log();
+  });
+
+function findPath(
+  graph: import("../core/index.js").DependencyGraph,
+  fromId: string,
+  toId: string,
+): string[] | null {
+  const visited = new Set<string>();
+  const queue: Array<{ id: string; path: string[] }> = [
+    { id: fromId, path: [fromId] },
+  ];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current.id === toId) return current.path;
+    if (visited.has(current.id)) continue;
+    visited.add(current.id);
+
+    for (const edge of graph.getDependencies(current.id)) {
+      if (!visited.has(edge.to)) {
+        queue.push({ id: edge.to, path: [...current.path, edge.to] });
+      }
+    }
+  }
+
+  return null;
+}
 
 program.parse();
