@@ -10,6 +10,7 @@ import { analyzeHealth } from "../core/health.js";
 import { startExplorer } from "./explore.js";
 import { registerDiffCommand } from "./diff.js";
 import { registerImpactCommand } from "./impact.js";
+import { registerHistoryCommand } from "./history.js";
 
 const program = new Command();
 
@@ -384,6 +385,7 @@ program
   });
 
 registerDiffCommand(program);
+registerHistoryCommand(program);
 
 program
   .command("exports")
