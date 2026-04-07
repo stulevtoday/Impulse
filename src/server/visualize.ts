@@ -61,7 +61,7 @@ svg { width: 100vw; height: 100vh; display: block; }
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.link { stroke-opacity: 0.2; transition: stroke-opacity 0.3s; }
+.link { stroke-opacity: 0.45; transition: stroke-opacity 0.3s; }
 .dimmed .node { opacity: 0.08; }
 .dimmed .link { stroke-opacity: 0.03; }
 .dimmed .node.highlighted { opacity: 1; }
@@ -172,7 +172,7 @@ async function main() {
     .attr("orient", "auto")
     .append("path")
     .attr("d", "M0,0 L10,3 L0,6Z")
-    .attr("fill", "#4a4a6a");
+    .attr("fill", "#6a7aaa");
 
   const g = svg.append("g");
 
@@ -186,8 +186,8 @@ async function main() {
     .data(links)
     .join("line")
     .attr("class", "link")
-    .attr("stroke", "#3a3a5a")
-    .attr("stroke-width", 1)
+    .attr("stroke", "#4a5a8a")
+    .attr("stroke-width", 1.2)
     .attr("marker-end", "url(#arrow)");
 
   const node = g.append("g")
