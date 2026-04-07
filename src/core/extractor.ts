@@ -5,6 +5,7 @@ import type { ExtractionResult, ExtractorContext } from "./types.js";
 import { dirname, resolve, relative, extname, join } from "node:path";
 import { existsSync } from "node:fs";
 import { extractPythonDependencies } from "./python-extractor.js";
+import { extractGoDependencies } from "./go-extractor.js";
 
 export type { ExtractionResult, ExtractorContext } from "./types.js";
 
@@ -14,6 +15,9 @@ export function extractDependencies(
 ): ExtractionResult {
   if (parsed.language === "python") {
     return extractPythonDependencies(parsed, ctx);
+  }
+  if (parsed.language === "go") {
+    return extractGoDependencies(parsed, ctx);
   }
 
   const nodes: GraphNode[] = [];

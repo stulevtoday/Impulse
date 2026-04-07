@@ -141,21 +141,23 @@ node dist/cli/index.js env /path/to/your/project
 - TypeScript (`.ts`, `.mts`, `.cts`)
 - TSX (`.tsx`)
 - JavaScript (`.js`, `.mjs`, `.cjs`, `.jsx`)
+- Python (`.py`) — import/from-import, relative imports, auto source root detection
+- Go (`.go`) — `go.mod` module resolution, package-level imports → file-level edges
 - Static imports, dynamic imports, `require()`, re-exports
 - `tsconfig.json` path aliases (`@/*` etc.)
 - `process.env.X` tracking + `.env` file analysis
 - Incremental watch mode with real-time impact
 - HTTP daemon with JSON API
+- Architecture health scoring with cycle severity classification
 - VS Code extension (in `vscode-extension/`)
 - Graph caching for instant daemon startup
 
 ## Roadmap
 
-- [ ] Python support
-- [ ] Go support
 - [ ] Interactive graph visualization
-- [ ] Config file change tracking (tsconfig, package.json)
+- [ ] Config file change tracking (tsconfig, package.json, go.mod)
 - [ ] Unix socket for daemon
+- [ ] Rust support
 
 ## The Story
 

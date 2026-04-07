@@ -1,6 +1,7 @@
 import Parser from "tree-sitter";
 import TypeScript from "tree-sitter-typescript";
 import Python from "tree-sitter-python";
+import Go from "tree-sitter-go";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 
@@ -13,7 +14,10 @@ tsxParser.setLanguage(TypeScript.tsx);
 const pyParser = new Parser();
 pyParser.setLanguage(Python);
 
-export type Language = "typescript" | "tsx" | "python";
+const goParser = new Parser();
+goParser.setLanguage(Go);
+
+export type Language = "typescript" | "tsx" | "python" | "go";
 
 export interface ParseResult {
   filePath: string;
@@ -39,6 +43,8 @@ function getLanguage(filePath: string): Language | null {
     case ".py":
     case ".pyw":
       return "python";
+    case ".go":
+      return "go";
     default:
       return null;
   }
@@ -48,6 +54,7 @@ const parserMap: Record<Language, Parser> = {
   typescript: tsParser,
   tsx: tsxParser,
   python: pyParser,
+  go: goParser,
 };
 
 export interface ParseWarning {
