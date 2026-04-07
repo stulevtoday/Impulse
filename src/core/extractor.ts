@@ -15,10 +15,16 @@ export interface ExtractorContext {
   aliases: PathAlias[];
 }
 
+import { extractPythonDependencies } from "./python-extractor.js";
+
 export function extractDependencies(
   parsed: ParseResult,
   ctx: ExtractorContext,
 ): ExtractionResult {
+  if (parsed.language === "python") {
+    return extractPythonDependencies(parsed, ctx);
+  }
+
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const fileId = `file:${parsed.filePath}`;

@@ -213,6 +213,16 @@ export async function startDaemon(
     });
   });
 
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`\n  Port ${port} is already in use.`);
+      console.error(`  Either another Impulse daemon is running, or another process uses this port.`);
+      console.error(`  Try: impulse daemon . --port ${port + 1}\n`);
+      process.exit(1);
+    }
+    throw err;
+  });
+
   server.listen(port, () => {
     console.log(`\n  Daemon listening on http://localhost:${port}`);
     console.log("  Endpoints: /status /impact /graph /files /dependencies /dependents /warnings\n");

@@ -18,6 +18,12 @@ const DEFAULT_IGNORE = [
   "**/vendor/**",
   "**/*.min.js",
   "**/*.map",
+  "**/__pycache__/**",
+  "**/.venv/**",
+  "**/venv/**",
+  "**/*.egg-info/**",
+  "**/.mypy_cache/**",
+  "**/.pytest_cache/**",
 ];
 
 const SUPPORTED_EXTENSIONS = [
@@ -29,6 +35,7 @@ const SUPPORTED_EXTENSIONS = [
   "mjs",
   "cts",
   "cjs",
+  "py",
 ];
 
 export async function scanProject(rootDir: string): Promise<ScanResult> {
