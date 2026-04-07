@@ -1,0 +1,32 @@
+{
+  "name": "impulse",
+  "version": "0.1.0",
+  "description": "Local daemon that builds a live dependency graph and answers: what breaks if I change X?",
+  "type": "module",
+  "main": "dist/cli/index.js",
+  "bin": {
+    "impulse": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/cli/index.js",
+    "impulse": "node dist/cli/index.js"
+  },
+  "keywords": ["dependency-graph", "impact-analysis", "tree-sitter", "developer-tools"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-typescript": "^0.23.2",
+    "chokidar": "^4.0.3",
+    "commander": "^13.1.0",
+    "fast-glob": "^3.3.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.12.0"
+  }
+}

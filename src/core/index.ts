@@ -1,0 +1,10 @@
+export { DependencyGraph } from "./graph.js";
+export type { GraphNode, GraphEdge, ImpactResult, NodeKind, EdgeKind } from "./graph.js";
+export { scanProject } from "./scanner.js";
+export type { ScanResult } from "./scanner.js";
+export { parseFile } from "./parser.js";
+export type { ParseResult } from "./parser.js";
+export { extractDependencies } from "./extractor.js";
+export type { ExtractionResult } from "./extractor.js";
+export { analyzeProject, updateFile, getFileImpact } from "./analyzer.js";
+export type { AnalysisStats, FullAnalysis } from "./analyzer.js";
