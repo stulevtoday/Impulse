@@ -4,6 +4,8 @@ import { Command } from "commander";
 import { resolve } from "node:path";
 import { analyzeProject, getFileImpact, getParseWarnings, DependencyGraph } from "../core/index.js";
 import { createWatcher } from "../watchers/fs-watcher.js";
+import { startDaemon } from "../server/index.js";
+import { loadEnvFiles, analyzeEnv } from "../core/env.js";
 
 const program = new Command();
 
@@ -230,6 +232,69 @@ program
         console.error(`  Error: ${error.message}`);
       },
     });
+  });
+
+program
+  .command("env")
+  .description("Show environment variable usage across the project")
+  .argument("[dir]", "Project root directory", ".")
+  .action(async (dir: string) => {
+    const rootDir = resolve(dir);
+    console.log(`\n  Impulse — environment variable analysis\n`);
+
+    const [{ graph }, envDefs] = await Promise.all([
+      analyzeProject(rootDir),
+      loadEnvFiles(rootDir),
+    ]);
+
+    const vars = analyzeEnv(graph, envDefs);
+
+    if (vars.length === 0) {
+      console.log("  No environment variables found.\n");
+      return;
+    }
+
+    const undefined_ = vars.filter((v) => v.definedIn.length === 0 && v.usedBy.length > 0);
+    const unused = vars.filter((v) => v.definedIn.length > 0 && v.usedBy.length === 0);
+    const used = vars.filter((v) => v.definedIn.length > 0 && v.usedBy.length > 0);
+
+    if (undefined_.length > 0) {
+      console.log(`  ⚠ Used in code but NOT in any .env file (${undefined_.length}):\n`);
+      for (const v of undefined_) {
+        console.log(`    ${v.name}`);
+        for (const f of v.usedBy) console.log(`      ← ${f}`);
+      }
+      console.log();
+    }
+
+    if (unused.length > 0) {
+      console.log(`  ⚠ Defined in .env but NOT used in code (${unused.length}):\n`);
+      for (const v of unused) {
+        console.log(`    ${v.name}  (${v.definedIn.join(", ")})`);
+      }
+      console.log();
+    }
+
+    if (used.length > 0) {
+      console.log(`  ✓ Defined and used (${used.length}):\n`);
+      for (const v of used) {
+        console.log(`    ${v.name}  (${v.definedIn.join(", ")}) → ${v.usedBy.length} file(s)`);
+      }
+      console.log();
+    }
+
+    console.log(`  Total: ${vars.length} env vars (${undefined_.length} undefined, ${unused.length} unused)\n`);
+  });
+
+program
+  .command("daemon")
+  .description("Start the Impulse daemon with HTTP API")
+  .argument("[dir]", "Project root directory", ".")
+  .option("-p, --port <n>", "Port to listen on", "4096")
+  .action(async (dir: string, opts: { port: string }) => {
+    const rootDir = resolve(dir);
+    const port = parseInt(opts.port, 10);
+    await startDaemon(rootDir, port);
   });
 
 program.parse();

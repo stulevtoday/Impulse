@@ -2,7 +2,8 @@ import type Parser from "tree-sitter";
 import type { ParseResult } from "./parser.js";
 import type { GraphNode, GraphEdge } from "./graph.js";
 import type { PathAlias } from "./tsconfig.js";
-import { dirname, resolve, relative, extname } from "node:path";
+import { dirname, resolve, relative, extname, join } from "node:path";
+import { existsSync } from "node:fs";
 
 export interface ExtractionResult {
   nodes: GraphNode[];
@@ -51,6 +52,9 @@ function visitNode(
       break;
     case "call_expression":
       handleDynamicImportOrRequire(node, parsed, ctx, fileId, nodes, edges);
+      break;
+    case "member_expression":
+      handleEnvAccess(node, parsed, fileId, nodes, edges);
       break;
   }
 
@@ -248,7 +252,7 @@ function resolveImportPath(
   ctx: ExtractorContext,
 ): string | null {
   if (specifier.startsWith(".") || specifier.startsWith("/")) {
-    return resolveRelativePath(specifier, fromFile);
+    return resolveRelativePath(specifier, fromFile, ctx.rootDir);
   }
 
   return resolveAliasPath(specifier, ctx);
@@ -257,11 +261,12 @@ function resolveImportPath(
 function resolveRelativePath(
   specifier: string,
   fromFile: string,
+  rootDir: string,
 ): string | null {
   const fromDir = dirname(fromFile);
   const raw = resolve("/", fromDir, specifier);
   const rel = raw.startsWith("/") ? raw.slice(1) : raw;
-  return applyExtension(rel);
+  return resolveWithExtensions(rel, rootDir);
 }
 
 function resolveAliasPath(
@@ -276,23 +281,94 @@ function resolveAliasPath(
       const abs = resolve(target, remainder);
       const rel = relative(ctx.rootDir, abs);
       if (rel.startsWith("..")) continue;
-      return applyExtension(rel);
+      const resolved = resolveWithExtensions(rel, ctx.rootDir);
+      if (resolved) return resolved;
     }
   }
 
   return null;
 }
 
-function applyExtension(rel: string): string {
+function resolveWithExtensions(rel: string, rootDir: string): string {
   const ext = extname(rel);
+
   if (ext && JS_TO_TS[ext]) {
     const base = rel.slice(0, -ext.length);
-    return `${base}${JS_TO_TS[ext][0]}`;
+    const candidates = JS_TO_TS[ext];
+    for (const candidate of candidates) {
+      const path = `${base}${candidate}`;
+      if (existsSync(join(rootDir, path))) return path;
+    }
+    return `${base}${candidates[0]}`;
   }
+
   if (!ext) {
+    for (const candidate of IMPLICIT_EXTENSIONS) {
+      const path = `${rel}${candidate}`;
+      if (existsSync(join(rootDir, path))) return path;
+    }
+    for (const candidate of INDEX_FILES) {
+      const path = join(rel, candidate);
+      if (existsSync(join(rootDir, path))) return path;
+    }
     return `${rel}${IMPLICIT_EXTENSIONS[0]}`;
   }
+
   return rel;
+}
+
+const INDEX_FILES = [
+  "index.ts", "index.tsx", "index.js", "index.jsx",
+];
+
+/**
+ * Detect process.env.VAR_NAME patterns and create env_var nodes.
+ * Handles: process.env.FOO, process.env['FOO'], process.env["FOO"]
+ */
+function handleEnvAccess(
+  node: Parser.SyntaxNode,
+  parsed: ParseResult,
+  fileId: string,
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+): void {
+  const text = node.text;
+
+  if (!text.startsWith("process.env")) return;
+
+  let varName: string | null = null;
+
+  // process.env.VAR_NAME (member_expression → member_expression → identifier)
+  const prop = node.children.find(
+    (c) => c.type === "property_identifier" || c.type === "identifier",
+  );
+  if (prop && prop.text !== "env" && prop.text !== "process") {
+    varName = prop.text;
+  }
+
+  // process.env['VAR'] or process.env["VAR"] — handled as subscript_expression parent
+  if (!varName && node.parent?.type === "subscript_expression") {
+    const sub = node.parent.children.find((c) => c.type === "string");
+    if (sub) varName = stripQuotes(sub.text);
+  }
+
+  if (!varName) return;
+
+  const envId = `env:${varName}`;
+  nodes.push({
+    id: envId,
+    kind: "env_var",
+    filePath: parsed.filePath,
+    name: varName,
+    line: node.startPosition.row + 1,
+  });
+
+  edges.push({
+    from: fileId,
+    to: envId,
+    kind: "reads_env",
+    metadata: { line: node.startPosition.row + 1 },
+  });
 }
 
 function stripQuotes(str: string): string {

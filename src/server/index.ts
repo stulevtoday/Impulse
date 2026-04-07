@@ -1,0 +1,202 @@
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { resolve } from "node:path";
+import { analyzeProject, getFileImpact, updateFile } from "../core/analyzer.js";
+import { getParseWarnings } from "../core/parser.js";
+import { createWatcher } from "../watchers/fs-watcher.js";
+import type { DependencyGraph } from "../core/graph.js";
+import type { ExtractorContext } from "../core/extractor.js";
+
+export interface DaemonState {
+  graph: DependencyGraph;
+  ctx: ExtractorContext;
+  rootDir: string;
+  ready: boolean;
+}
+
+let state: DaemonState | null = null;
+
+function json(res: ServerResponse, status: number, data: unknown): void {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(data));
+}
+
+function parseUrl(req: IncomingMessage): { path: string; query: Record<string, string> } {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const query: Record<string, string> = {};
+  for (const [k, v] of url.searchParams) query[k] = v;
+  return { path: url.pathname, query };
+}
+
+async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const { path, query } = parseUrl(req);
+
+  if (!state?.ready && path !== "/status") {
+    json(res, 503, { error: "Impulse is still indexing" });
+    return;
+  }
+
+  switch (path) {
+    case "/status": {
+      const stats = state?.graph.stats ?? { nodes: 0, edges: 0 };
+      json(res, 200, {
+        ready: state?.ready ?? false,
+        rootDir: state?.rootDir ?? null,
+        ...stats,
+        warnings: getParseWarnings().length,
+      });
+      break;
+    }
+
+    case "/impact": {
+      const file = query.file;
+      if (!file) {
+        json(res, 400, { error: "Missing ?file= parameter" });
+        return;
+      }
+      const maxDepth = parseInt(query.depth ?? "10", 10);
+      const impact = getFileImpact(state!.graph, file, maxDepth);
+      json(res, 200, {
+        changed: impact.changed,
+        affected: impact.affected.map((a) => ({
+          file: a.node.filePath,
+          depth: a.depth,
+          kind: a.node.kind,
+        })),
+        count: impact.affected.length,
+      });
+      break;
+    }
+
+    case "/graph": {
+      const nodes = state!.graph.allNodes().map((n) => ({
+        id: n.id,
+        kind: n.kind,
+        file: n.filePath,
+        name: n.name,
+      }));
+      const edges = state!.graph.allEdges().map((e) => ({
+        from: e.from,
+        to: e.to,
+        kind: e.kind,
+      }));
+      json(res, 200, { nodes: nodes.length, edges: edges.length, data: { nodes, edges } });
+      break;
+    }
+
+    case "/files": {
+      const files = state!.graph
+        .allNodes()
+        .filter((n) => n.kind === "file")
+        .map((n) => {
+          const deps = state!.graph.getDependencies(n.id);
+          const dependents = state!.graph.getDependents(n.id);
+          return {
+            file: n.filePath,
+            imports: deps.filter((e) => e.kind === "imports").length,
+            importedBy: dependents.filter((e) => e.kind === "imports").length,
+          };
+        })
+        .sort((a, b) => b.importedBy - a.importedBy);
+      json(res, 200, { count: files.length, files });
+      break;
+    }
+
+    case "/dependencies": {
+      const file = query.file;
+      if (!file) {
+        json(res, 400, { error: "Missing ?file= parameter" });
+        return;
+      }
+      const fileId = `file:${file}`;
+      const deps = state!.graph.getDependencies(fileId);
+      json(res, 200, {
+        file,
+        dependencies: deps.map((e) => ({
+          target: e.to.replace(/^(file:|external:)/, ""),
+          kind: e.kind,
+          external: e.to.startsWith("external:"),
+        })),
+      });
+      break;
+    }
+
+    case "/dependents": {
+      const file = query.file;
+      if (!file) {
+        json(res, 400, { error: "Missing ?file= parameter" });
+        return;
+      }
+      const fileId = `file:${file}`;
+      const deps = state!.graph.getDependents(fileId);
+      json(res, 200, {
+        file,
+        dependents: deps.map((e) => ({
+          source: e.from.replace(/^file:/, ""),
+          kind: e.kind,
+        })),
+      });
+      break;
+    }
+
+    case "/warnings": {
+      json(res, 200, { warnings: getParseWarnings() });
+      break;
+    }
+
+    default:
+      json(res, 404, { error: "Not found", endpoints: [
+        "/status", "/impact?file=", "/graph", "/files",
+        "/dependencies?file=", "/dependents?file=", "/warnings",
+      ]});
+  }
+}
+
+export async function startDaemon(
+  rootDir: string,
+  port: number,
+): Promise<void> {
+  const absRoot = resolve(rootDir);
+  console.log(`\n  Impulse daemon — indexing ${absRoot}...\n`);
+
+  const { graph, ctx, stats } = await analyzeProject(absRoot);
+  state = { graph, ctx, rootDir: absRoot, ready: true };
+
+  console.log(
+    `  Indexed: ${stats.filesScanned} files, ${stats.nodeCount} nodes, ${stats.edgeCount} edges (${stats.durationMs}ms)`,
+  );
+
+  const warnings = getParseWarnings();
+  if (warnings.length > 0) {
+    console.log(`  ⚠ ${warnings.length} file(s) could not be parsed`);
+  }
+
+  createWatcher(absRoot, graph, ctx, {
+    onChange(filePath, affected) {
+      console.log(
+        `  [${ts()}] ${filePath} changed → ${affected.length} affected`,
+      );
+    },
+    onAdd(filePath) {
+      console.log(`  [${ts()}] ${filePath} added`);
+    },
+    onRemove(filePath) {
+      console.log(`  [${ts()}] ${filePath} removed`);
+    },
+  });
+
+  const server = createServer((req, res) => {
+    handleRequest(req, res).catch((err) => {
+      console.error("  Request error:", err);
+      json(res, 500, { error: "Internal error" });
+    });
+  });
+
+  server.listen(port, () => {
+    console.log(`\n  Daemon listening on http://localhost:${port}`);
+    console.log("  Endpoints: /status /impact /graph /files /dependencies /dependents /warnings\n");
+  });
+}
+
+function ts(): string {
+  return new Date().toLocaleTimeString();
+}
