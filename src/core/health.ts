@@ -40,6 +40,7 @@ export interface HealthReport {
   penalties: Penalties;
   stats: {
     totalFiles: number;
+    totalExports: number;
     avgImports: number;
     avgImportedBy: number;
     maxImports: number;
@@ -214,8 +215,11 @@ function computeStats(
   const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
   const max = (arr: number[]) => arr.length ? Math.max(...arr) : 0;
 
+  const totalExports = graph.allNodes().filter((n) => n.kind === "export").length;
+
   return {
     totalFiles: fileNodes.length,
+    totalExports,
     avgImports: Math.round(avg(importCounts) * 10) / 10,
     avgImportedBy: Math.round(avg(importedByCounts) * 10) / 10,
     maxImports: max(importCounts),
