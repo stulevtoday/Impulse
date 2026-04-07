@@ -1,14 +1,14 @@
 import type Parser from "tree-sitter";
 import type { ParseResult } from "./parser.js";
 import type { GraphNode, GraphEdge } from "./graph.js";
-import type { ExtractorContext } from "./extractor.js";
+import type { ExtractorContext, ExtractionResult } from "./types.js";
 import { dirname, join, relative } from "node:path";
 import { existsSync, readdirSync, statSync } from "node:fs";
 
 export function extractPythonDependencies(
   parsed: ParseResult,
   ctx: ExtractorContext,
-): { nodes: GraphNode[]; edges: GraphEdge[] } {
+): ExtractionResult {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const fileId = `file:${parsed.filePath}`;

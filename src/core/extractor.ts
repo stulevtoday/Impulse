@@ -1,21 +1,12 @@
 import type Parser from "tree-sitter";
 import type { ParseResult } from "./parser.js";
 import type { GraphNode, GraphEdge } from "./graph.js";
-import type { PathAlias } from "./tsconfig.js";
+import type { ExtractionResult, ExtractorContext } from "./types.js";
 import { dirname, resolve, relative, extname, join } from "node:path";
 import { existsSync } from "node:fs";
-
-export interface ExtractionResult {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-}
-
-export interface ExtractorContext {
-  rootDir: string;
-  aliases: PathAlias[];
-}
-
 import { extractPythonDependencies } from "./python-extractor.js";
+
+export type { ExtractionResult, ExtractorContext } from "./types.js";
 
 export function extractDependencies(
   parsed: ParseResult,

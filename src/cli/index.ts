@@ -317,9 +317,23 @@ program
     };
     const color = gradeColors[report.grade] ?? "";
     const reset = "\x1b[0m";
+    const dim = "\x1b[2m";
 
     console.log(`  Score: ${color}${report.score}/100 (${report.grade})${reset}`);
     console.log(`  ${report.summary}\n`);
+
+    const p = report.penalties;
+    const penaltyLines: string[] = [];
+    if (p.cycles > 0) penaltyLines.push(`    Cycles:            -${p.cycles}`);
+    if (p.godFiles > 0) penaltyLines.push(`    God files:         -${p.godFiles}`);
+    if (p.deepChains > 0) penaltyLines.push(`    Deep chains:       -${p.deepChains}`);
+    if (p.orphans > 0) penaltyLines.push(`    Orphans:           -${p.orphans}`);
+    if (p.hubConcentration > 0) penaltyLines.push(`    Hub concentration: -${p.hubConcentration}`);
+    if (penaltyLines.length > 0) {
+      console.log("  Penalties:");
+      for (const line of penaltyLines) console.log(line);
+      console.log();
+    }
 
     console.log("  Stats:");
     console.log(`    Files:             ${report.stats.totalFiles}`);
@@ -333,7 +347,10 @@ program
     if (report.cycles.length > 0) {
       console.log(`\n  ⚠ Circular Dependencies (${report.cycles.length}):\n`);
       for (const cycle of report.cycles.slice(0, 10)) {
-        console.log(`    ${cycle.cycle.join(" → ")}`);
+        const display = cycle.severity === "tight-couple"
+          ? `${cycle.cycle[0]} ↔ ${cycle.cycle[1]}`
+          : cycle.cycle.join(" → ");
+        console.log(`    ${display}  ${dim}(${cycle.severity})${reset}`);
       }
       if (report.cycles.length > 10) {
         console.log(`    ...and ${report.cycles.length - 10} more`);

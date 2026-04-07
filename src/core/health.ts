@@ -1,8 +1,11 @@
 import type { DependencyGraph, GraphNode } from "./graph.js";
 
+export type CycleSeverity = "tight-couple" | "short-ring" | "long-ring";
+
 export interface CircularDependency {
   cycle: string[];
   length: number;
+  severity: CycleSeverity;
 }
 
 export interface GodFile {
@@ -18,6 +21,14 @@ export interface DepthAnalysis {
   chain: string[];
 }
 
+export interface Penalties {
+  cycles: number;
+  godFiles: number;
+  deepChains: number;
+  orphans: number;
+  hubConcentration: number;
+}
+
 export interface HealthReport {
   score: number;
   grade: string;
@@ -26,6 +37,7 @@ export interface HealthReport {
   godFiles: GodFile[];
   deepestChains: DepthAnalysis[];
   orphans: string[];
+  penalties: Penalties;
   stats: {
     totalFiles: number;
     avgImports: number;
@@ -49,11 +61,17 @@ export function analyzeHealth(graph: DependencyGraph): HealthReport {
   const orphans = findOrphans(graph, fileNodes);
   const stats = computeStats(graph, fileNodes, localEdges, externalEdges);
 
-  const score = computeScore(cycles, godFiles, deepestChains, orphans, stats);
+  const { score, penalties } = computeScore(cycles, godFiles, deepestChains, orphans, stats);
   const grade = scoreToGrade(score);
-  const summary = buildSummary(cycles, godFiles, deepestChains, orphans, score);
+  const summary = buildSummary(cycles, godFiles, deepestChains, orphans);
 
-  return { score, grade, summary, cycles, godFiles, deepestChains, orphans, stats };
+  return { score, grade, summary, cycles, godFiles, deepestChains, orphans, penalties, stats };
+}
+
+function classifySeverity(cycleLength: number): CycleSeverity {
+  if (cycleLength <= 2) return "tight-couple";
+  if (cycleLength <= 4) return "short-ring";
+  return "long-ring";
 }
 
 function detectCycles(graph: DependencyGraph, fileNodes: GraphNode[]): CircularDependency[] {
@@ -70,7 +88,8 @@ function detectCycles(graph: DependencyGraph, fileNodes: GraphNode[]): CircularD
         cycle.push(cycle[0]);
         const normalized = normalizeCycle(cycle);
         if (!cycles.some((c) => c.cycle.join("→") === normalized.join("→"))) {
-          cycles.push({ cycle: normalized, length: normalized.length - 1 });
+          const length = normalized.length - 1;
+          cycles.push({ cycle: normalized, length, severity: classifySeverity(length) });
         }
       }
       return;
@@ -211,27 +230,45 @@ function computeScore(
   deepChains: DepthAnalysis[],
   orphans: string[],
   stats: { totalFiles: number; maxImportedBy: number },
-): number {
-  let score = 100;
+): { score: number; penalties: Penalties } {
+  const penalties: Penalties = {
+    cycles: 0,
+    godFiles: 0,
+    deepChains: 0,
+    orphans: 0,
+    hubConcentration: 0,
+  };
 
-  score -= cycles.length * 15;
-  score -= godFiles.length * 5;
+  let rawCyclePenalty = 0;
+  for (const cycle of cycles) {
+    switch (cycle.severity) {
+      case "tight-couple": rawCyclePenalty += 3; break;
+      case "short-ring": rawCyclePenalty += 8; break;
+      case "long-ring": rawCyclePenalty += 15; break;
+    }
+  }
+  penalties.cycles = Math.min(rawCyclePenalty, 50);
+
+  penalties.godFiles = Math.min(godFiles.length * 5, 20);
 
   if (deepChains.length > 0) {
     const maxDepth = deepChains[0].maxDepth;
-    if (maxDepth > 8) score -= 15;
-    else if (maxDepth > 5) score -= 8;
-    else if (maxDepth > 3) score -= 3;
+    if (maxDepth > 8) penalties.deepChains = 15;
+    else if (maxDepth > 5) penalties.deepChains = 8;
+    else if (maxDepth > 3) penalties.deepChains = 3;
   }
 
   const orphanRatio = stats.totalFiles > 0 ? orphans.length / stats.totalFiles : 0;
-  if (orphanRatio > 0.3) score -= 10;
-  else if (orphanRatio > 0.15) score -= 5;
+  if (orphanRatio > 0.3) penalties.orphans = 10;
+  else if (orphanRatio > 0.15) penalties.orphans = 5;
 
-  if (stats.maxImportedBy > 30) score -= 10;
-  else if (stats.maxImportedBy > 20) score -= 5;
+  if (stats.maxImportedBy > 30) penalties.hubConcentration = 10;
+  else if (stats.maxImportedBy > 20) penalties.hubConcentration = 5;
 
-  return Math.max(0, Math.min(100, score));
+  const total = Object.values(penalties).reduce((a, b) => a + b, 0);
+  const score = Math.max(0, Math.min(100, 100 - total));
+
+  return { score, penalties };
 }
 
 function scoreToGrade(score: number): string {
@@ -247,10 +284,20 @@ function buildSummary(
   godFiles: GodFile[],
   deepChains: DepthAnalysis[],
   orphans: string[],
-  score: number,
 ): string {
   const issues: string[] = [];
-  if (cycles.length > 0) issues.push(`${cycles.length} circular dep(s)`);
+
+  if (cycles.length > 0) {
+    const tight = cycles.filter((c) => c.severity === "tight-couple").length;
+    const short = cycles.filter((c) => c.severity === "short-ring").length;
+    const long = cycles.filter((c) => c.severity === "long-ring").length;
+    const parts: string[] = [];
+    if (tight > 0) parts.push(`${tight} tight`);
+    if (short > 0) parts.push(`${short} short-ring`);
+    if (long > 0) parts.push(`${long} long-ring`);
+    issues.push(`${cycles.length} cycle(s) (${parts.join(", ")})`);
+  }
+
   if (godFiles.length > 0) issues.push(`${godFiles.length} god file(s)`);
   if (deepChains.length > 0) issues.push(`max chain depth ${deepChains[0].maxDepth}`);
   if (orphans.length > 0) issues.push(`${orphans.length} isolated file(s)`);
