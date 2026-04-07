@@ -66,6 +66,13 @@ svg { width: 100vw; height: 100vh; display: block; }
 .dimmed .link { stroke-opacity: 0.03; }
 .dimmed .node.highlighted { opacity: 1; }
 .dimmed .link.highlighted { stroke-opacity: 0.6; }
+
+@keyframes ripple-glow {
+  0% { filter: brightness(1); }
+  50% { filter: brightness(2.2); }
+  100% { filter: brightness(1); }
+}
+.ripple { animation: ripple-glow 0.6s ease-out; }
 </style>
 </head>
 <body>
@@ -246,9 +253,32 @@ async function main() {
       const affectedIds = new Set(impact.affected.map(a => "file:" + a.file));
       affectedIds.add(d.id);
 
+      const byDepth = new Map();
+      byDepth.set(0, [d.id]);
+      for (const a of impact.affected) {
+        const list = byDepth.get(a.depth) || [];
+        list.push("file:" + a.file);
+        byDepth.set(a.depth, list);
+      }
+
       svg.classed("dimmed", true);
-      node.classed("highlighted", n => affectedIds.has(n.id));
-      link.classed("highlighted", l => affectedIds.has(l.source.id) && affectedIds.has(l.target.id));
+      node.classed("highlighted", false);
+      link.classed("highlighted", false);
+
+      const maxDepth = Math.max(...byDepth.keys(), 0);
+      for (let depth = 0; depth <= maxDepth; depth++) {
+        const ids = new Set(byDepth.get(depth) || []);
+        setTimeout(() => {
+          node.filter(n => ids.has(n.id))
+            .classed("highlighted", true)
+            .select("circle")
+            .classed("ripple", false)
+            .each(function() { this.offsetWidth; })
+            .classed("ripple", true);
+          link.filter(l => affectedIds.has(l.source.id) && affectedIds.has(l.target.id) && ids.has(l.target.id))
+            .classed("highlighted", true);
+        }, depth * 400);
+      }
     } catch {}
   });
 
