@@ -178,7 +178,7 @@ export class DependencyGraph {
     return merged;
   }
 
-  /** Get all export nodes for a given file. */
+  /** Get all export nodes for a given file (includes importer-created nodes). */
   getFileExports(filePath: string): GraphNode[] {
     const result: GraphNode[] = [];
     for (const node of this.nodes.values()) {
@@ -186,6 +186,25 @@ export class DependencyGraph {
         result.push(node);
       }
     }
+    return result.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Get only exports actually declared by the file itself (connected via
+   * an `exports` edge from the file node). Excludes phantom nodes created
+   * by importers that reference non-existent exports.
+   */
+  getDeclaredExports(filePath: string): GraphNode[] {
+    const fileId = `file:${filePath}`;
+    const forward = this.getDependencies(fileId);
+    const result: GraphNode[] = [];
+
+    for (const edge of forward) {
+      if (edge.kind !== "exports") continue;
+      const node = this.nodes.get(edge.to);
+      if (node && node.kind === "export") result.push(node);
+    }
+
     return result.sort((a, b) => a.name.localeCompare(b.name));
   }
 

@@ -21,6 +21,7 @@ interface CIConfig {
 
 interface BranchAnalysis {
   health: HealthReport;
+  graph: DependencyGraph;
   filesScanned: number;
   durationMs: number;
 }
@@ -28,6 +29,19 @@ interface BranchAnalysis {
 interface SymbolImpact {
   name: string;
   affectedFiles: number;
+  status: "added" | "removed" | "retained";
+}
+
+interface FileExportDiff {
+  file: string;
+  added: string[];
+  removed: string[];
+}
+
+interface BreakingChange {
+  file: string;
+  exportName: string;
+  consumers: string[];
 }
 
 interface FileImpact {
@@ -41,6 +55,8 @@ interface ImpactSummary {
   perFile: FileImpact[];
   allAffected: Array<[string, { depth: number; via: string }]>;
   totalAffected: number;
+  exportDiffs: FileExportDiff[];
+  breakingChanges: BreakingChange[];
 }
 
 // ── Config ─────────────────────────────────────────────────────────
@@ -65,7 +81,7 @@ function loadConfig(): CIConfig {
 async function analyzeBranch(dir: string): Promise<BranchAnalysis> {
   const { graph, stats } = await analyzeProject(dir);
   const health = analyzeHealth(graph);
-  return { health, filesScanned: stats.filesScanned, durationMs: stats.durationMs };
+  return { health, graph, filesScanned: stats.filesScanned, durationMs: stats.durationMs };
 }
 
 function ensureBaseRef(projectRoot: string, baseRef: string): void {
@@ -138,9 +154,60 @@ function getChangedFiles(projectRoot: string, baseRef: string): string[] {
   return [];
 }
 
+function diffFileExports(
+  baseGraph: DependencyGraph,
+  headGraph: DependencyGraph,
+  changedFiles: string[],
+): FileExportDiff[] {
+  const diffs: FileExportDiff[] = [];
+
+  for (const file of changedFiles) {
+    const baseNames = new Set(baseGraph.getDeclaredExports(file).map((e) => e.name));
+    const headNames = new Set(headGraph.getDeclaredExports(file).map((e) => e.name));
+
+    const added = [...headNames].filter((n) => !baseNames.has(n));
+    const removed = [...baseNames].filter((n) => !headNames.has(n));
+
+    if (added.length > 0 || removed.length > 0) {
+      diffs.push({ file, added, removed });
+    }
+  }
+
+  return diffs;
+}
+
+function findBreakingChanges(
+  baseGraph: DependencyGraph,
+  diffs: FileExportDiff[],
+  changedSet: Set<string>,
+): BreakingChange[] {
+  const breaking: BreakingChange[] = [];
+
+  for (const diff of diffs) {
+    for (const name of diff.removed) {
+      const impact = baseGraph.analyzeExportImpact(diff.file, name);
+      const consumers = impact.affected
+        .filter(
+          (a) =>
+            a.depth === 1 &&
+            a.node.kind === "file" &&
+            !changedSet.has(a.node.filePath),
+        )
+        .map((a) => a.node.filePath);
+
+      if (consumers.length > 0) {
+        breaking.push({ file: diff.file, exportName: name, consumers });
+      }
+    }
+  }
+
+  return breaking;
+}
+
 function computeImpactFromGraph(
   graph: DependencyGraph,
   changedFiles: string[],
+  baseGraph: DependencyGraph | null = null,
 ): ImpactSummary {
   const allAffected = new Map<string, { depth: number; via: string }>();
   const changedSet = new Set(changedFiles);
@@ -157,34 +224,82 @@ function computeImpactFromGraph(
     }
   }
 
+  const exportDiffs = baseGraph
+    ? diffFileExports(baseGraph, graph, changedFiles)
+    : [];
+  const breakingChanges = baseGraph
+    ? findBreakingChanges(baseGraph, exportDiffs, changedSet)
+    : [];
+  const diffByFile = new Map(exportDiffs.map((d) => [d.file, d]));
+
   const perFile = changedFiles.map((file) => {
     const impact = getFileImpact(graph, file);
     const affected = impact.affected.filter(
       (a) => a.node.kind === "file" && !changedSet.has(a.node.filePath),
     );
-    const maxDepth = affected.length > 0
-      ? Math.max(...affected.map((a) => a.depth))
-      : 0;
+    const maxDepth =
+      affected.length > 0 ? Math.max(...affected.map((a) => a.depth)) : 0;
 
-    const exports = graph.getFileExports(file);
+    const diff = diffByFile.get(file);
+    const addedSet = new Set(diff?.added ?? []);
+    const removedNames = diff?.removed ?? [];
+
+    const exports = graph.getDeclaredExports(file);
     const symbols: SymbolImpact[] = exports.map((exp) => {
       const symImpact = graph.analyzeExportImpact(file, exp.name);
       const symFiles = symImpact.affected.filter(
         (a) => a.node.kind === "file" && !changedSet.has(a.node.filePath),
       ).length;
-      return { name: exp.name, affectedFiles: symFiles };
-    }).filter((s) => s.affectedFiles > 0)
-      .sort((a, b) => b.affectedFiles - a.affectedFiles);
+      return {
+        name: exp.name,
+        affectedFiles: symFiles,
+        status: addedSet.has(exp.name)
+          ? ("added" as const)
+          : ("retained" as const),
+      };
+    });
 
-    return { file, affectedCount: affected.length, maxDepth, symbols };
+    if (baseGraph) {
+      for (const name of removedNames) {
+        const baseImpact = baseGraph.analyzeExportImpact(file, name);
+        const consumers = baseImpact.affected.filter(
+          (a) =>
+            a.depth === 1 &&
+            a.node.kind === "file" &&
+            !changedSet.has(a.node.filePath),
+        ).length;
+        symbols.push({ name, affectedFiles: consumers, status: "removed" });
+      }
+    }
+
+    const filteredSymbols = symbols
+      .filter((s) => s.affectedFiles > 0 || s.status !== "retained")
+      .sort((a, b) => {
+        if (a.status === "removed" && b.status !== "removed") return -1;
+        if (b.status === "removed" && a.status !== "removed") return 1;
+        if (a.status === "added" && b.status !== "added") return -1;
+        if (b.status === "added" && a.status !== "added") return 1;
+        return b.affectedFiles - a.affectedFiles;
+      });
+
+    return {
+      file,
+      affectedCount: affected.length,
+      maxDepth,
+      symbols: filteredSymbols,
+    };
   });
 
-  const sorted = [...allAffected.entries()].sort((a, b) => a[1].depth - b[1].depth);
+  const sorted = [...allAffected.entries()].sort(
+    (a, b) => a[1].depth - b[1].depth,
+  );
 
   return {
     perFile: perFile.sort((a, b) => b.affectedCount - a.affectedCount),
     allAffected: sorted,
     totalAffected: sorted.length,
+    exportDiffs,
+    breakingChanges,
   };
 }
 
@@ -278,6 +393,51 @@ function generateReport(
     }
   }
 
+  // ── Breaking changes ──
+  if (impact.breakingChanges.length > 0) {
+    lines.push(
+      `### ⚠️ Breaking: ${impact.breakingChanges.length} removed export(s) with active consumers`,
+    );
+    lines.push("");
+    lines.push("| File | Export | Consumers |");
+    lines.push("|---|---|---|");
+    for (const bc of impact.breakingChanges) {
+      const shown = bc.consumers
+        .slice(0, 3)
+        .map((c) => `\`${c}\``)
+        .join(", ");
+      const more =
+        bc.consumers.length > 3
+          ? ` +${bc.consumers.length - 3} more`
+          : "";
+      lines.push(
+        `| \`${bc.file}\` | \`${bc.exportName}\` | ${shown}${more} |`,
+      );
+    }
+    lines.push("");
+  }
+
+  // ── New exports ──
+  const newExports = impact.exportDiffs.flatMap((d) =>
+    d.added.map((name) => ({ file: d.file, name })),
+  );
+  if (newExports.length > 0) {
+    lines.push("<details>");
+    lines.push(
+      `<summary>✨ ${newExports.length} new export(s)</summary>`,
+    );
+    lines.push("");
+    for (const exp of newExports.slice(0, 30)) {
+      lines.push(`- \`${exp.file}\` → \`${exp.name}\``);
+    }
+    if (newExports.length > 30) {
+      lines.push(`- *...${newExports.length - 30} more*`);
+    }
+    lines.push("");
+    lines.push("</details>");
+    lines.push("");
+  }
+
   // ── Impact summary ──
   if (changedFiles.length > 0) {
     lines.push(
@@ -314,10 +474,18 @@ function generateReport(
       for (const f of filesWithSymbols.slice(0, 10)) {
         lines.push(`**\`${f.file}\`** (${f.affectedCount} at file level)`);
         lines.push("");
-        lines.push("| Export | Affected |");
-        lines.push("|---|---|");
+        lines.push("| Export | Affected | |");
+        lines.push("|---|---|---|");
         for (const sym of f.symbols.slice(0, 15)) {
-          lines.push(`| \`${sym.name}\` | ${sym.affectedFiles} |`);
+          const label =
+            sym.status === "removed"
+              ? "🔴 removed"
+              : sym.status === "added"
+                ? "✨ new"
+                : "";
+          lines.push(
+            `| \`${sym.name}\` | ${sym.affectedFiles} | ${label} |`,
+          );
         }
         lines.push("");
       }
@@ -476,6 +644,7 @@ function setOutputs(
   appendFileSync(outputFile, `score=${head.health.score}\n`);
   appendFileSync(outputFile, `grade=${head.health.grade}\n`);
   appendFileSync(outputFile, `affected=${impact.totalAffected}\n`);
+  appendFileSync(outputFile, `breaking=${impact.breakingChanges.length}\n`);
   if (base) {
     appendFileSync(
       outputFile,
@@ -502,6 +671,7 @@ async function main(): Promise<void> {
   const headHealth = analyzeHealth(headGraph);
   const head: BranchAnalysis = {
     health: headHealth,
+    graph: headGraph,
     filesScanned: headStats.filesScanned,
     durationMs: headStats.durationMs,
   };
@@ -525,9 +695,22 @@ async function main(): Promise<void> {
   const changedFiles = getChangedFiles(config.projectRoot, config.baseRef);
   console.log(`\n  Changed files: ${changedFiles.length}`);
 
-  const impact = computeImpactFromGraph(headGraph, changedFiles);
+  const impact = computeImpactFromGraph(
+    headGraph,
+    changedFiles,
+    base?.graph ?? null,
+  );
   if (impact.totalAffected > 0) {
     console.log(`  Affected files: ${impact.totalAffected}`);
+  }
+  if (impact.breakingChanges.length > 0) {
+    console.log(
+      `  ⚠️  Breaking: ${impact.breakingChanges.length} removed export(s) with consumers`,
+    );
+  }
+  const totalNew = impact.exportDiffs.reduce((s, d) => s + d.added.length, 0);
+  if (totalNew > 0) {
+    console.log(`  ✨ New exports: ${totalNew}`);
   }
 
   // 4. Generate report

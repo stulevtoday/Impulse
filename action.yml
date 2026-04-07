@@ -32,6 +32,9 @@ outputs:
   delta:
     description: 'Health score change compared to the base branch'
     value: ${{ steps.analyze.outputs.delta }}
+  breaking:
+    description: 'Number of removed exports with active consumers (breaking changes)'
+    value: ${{ steps.analyze.outputs.breaking }}
 
 runs:
   using: 'composite'
