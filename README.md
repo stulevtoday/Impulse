@@ -143,6 +143,7 @@ node dist/cli/index.js env /path/to/your/project
 - JavaScript (`.js`, `.mjs`, `.cjs`, `.jsx`)
 - Python (`.py`) — import/from-import, relative imports, auto source root detection
 - Go (`.go`) — `go.mod` module resolution, package-level imports → file-level edges
+- Rust (`.rs`) — `mod` declarations, `use crate::`/`super::`/`self::` resolution, `Cargo.toml` dependency detection
 - Static imports, dynamic imports, `require()`, re-exports
 - `tsconfig.json` path aliases (`@/*` etc.)
 - `process.env.X` tracking + `.env` file analysis
@@ -165,7 +166,7 @@ Interactive D3.js force-directed graph — color-coded by directory, sized by co
 
 - [ ] Config file change tracking (tsconfig, package.json, go.mod)
 - [ ] Unix socket for daemon
-- [ ] Rust support
+- [ ] C/C++ support
 - [ ] Symbol-level dependency tracking (export → import mapping)
 
 ## The Story
