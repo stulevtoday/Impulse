@@ -469,4 +469,24 @@ program
     await startDaemon(rootDir, port);
   });
 
+program
+  .command("visualize")
+  .description("Start daemon and open interactive dependency graph in the browser")
+  .argument("[dir]", "Project root directory", ".")
+  .option("-p, --port <n>", "Port to listen on", "4096")
+  .action(async (dir: string, opts: { port: string }) => {
+    const rootDir = resolve(dir);
+    const port = parseInt(opts.port, 10);
+    const url = `http://localhost:${port}/visualize`;
+
+    const { exec } = await import("node:child_process");
+    startDaemon(rootDir, port).then(() => {});
+
+    setTimeout(() => {
+      const cmd = process.platform === "darwin" ? "open"
+        : process.platform === "win32" ? "start" : "xdg-open";
+      exec(`${cmd} ${url}`);
+    }, 2000);
+  });
+
 program.parse();
