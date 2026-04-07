@@ -24,6 +24,9 @@ const DEFAULT_IGNORE = [
   "**/*.egg-info/**",
   "**/.mypy_cache/**",
   "**/.pytest_cache/**",
+  "**/Migrations/**",
+  "**/obj/**",
+  "**/bin/**",
 ];
 
 const SUPPORTED_EXTENSIONS = [
