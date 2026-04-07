@@ -28,6 +28,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("impulse.showImpact", showImpact),
     vscode.commands.registerCommand("impulse.showDependencies", showDependencies),
     vscode.commands.registerCommand("impulse.showDependents", showDependents),
+    vscode.commands.registerCommand("impulse.showHealth", showHealth),
   );
 
   if (config.get<boolean>("showImpactOnSave", true)) {
@@ -47,14 +48,21 @@ export function deactivate(): void {
 async function updateStatusBar(): Promise<void> {
   try {
     const status = await client.status();
-    if (status.ready) {
-      statusBarItem.text = `$(pulse) ${status.nodes} nodes`;
-      statusBarItem.tooltip = `Impulse: ${status.nodes} nodes, ${status.edges} edges`;
-      statusBarItem.show();
-    } else {
+    if (!status.ready) {
       statusBarItem.text = "$(loading~spin) Impulse indexing...";
       statusBarItem.show();
+      return;
     }
+
+    try {
+      const health = await client.health();
+      statusBarItem.text = `$(pulse) ${health.grade} · ${status.nodes} nodes`;
+      statusBarItem.tooltip = `Impulse: ${health.score}/100 (${health.grade}) — ${status.nodes} nodes, ${status.edges} edges\n${health.summary}`;
+    } catch {
+      statusBarItem.text = `$(pulse) ${status.nodes} nodes`;
+      statusBarItem.tooltip = `Impulse: ${status.nodes} nodes, ${status.edges} edges`;
+    }
+    statusBarItem.show();
   } catch {
     statusBarItem.text = "$(circle-slash) Impulse offline";
     statusBarItem.tooltip = "Impulse daemon is not running. Start with: impulse daemon .";
@@ -165,6 +173,64 @@ async function showDependencies(): Promise<void> {
     if (external.length > 0) {
       outputChannel.appendLine(`  External (${external.length}):`);
       for (const d of external) outputChannel.appendLine(`    → ${d.target}`);
+    }
+
+    outputChannel.show();
+  } catch {
+    vscode.window.showErrorMessage("Impulse daemon not reachable");
+  }
+}
+
+async function showHealth(): Promise<void> {
+  try {
+    const report = await client.health();
+
+    outputChannel.clear();
+    outputChannel.appendLine(`Impulse — Architecture Health Report\n`);
+    outputChannel.appendLine(`Score: ${report.score}/100 (${report.grade})`);
+    outputChannel.appendLine(`${report.summary}\n`);
+
+    const p = report.penalties;
+    const penalties = Object.entries(p).filter(([, v]) => v > 0);
+    if (penalties.length > 0) {
+      outputChannel.appendLine("Penalties:");
+      if (p.cycles > 0) outputChannel.appendLine(`  Cycles:            -${p.cycles}`);
+      if (p.godFiles > 0) outputChannel.appendLine(`  God files:         -${p.godFiles}`);
+      if (p.deepChains > 0) outputChannel.appendLine(`  Deep chains:       -${p.deepChains}`);
+      if (p.orphans > 0) outputChannel.appendLine(`  Orphans:           -${p.orphans}`);
+      if (p.hubConcentration > 0) outputChannel.appendLine(`  Hub concentration: -${p.hubConcentration}`);
+      outputChannel.appendLine("");
+    }
+
+    outputChannel.appendLine(`Stats:`);
+    outputChannel.appendLine(`  Files:           ${report.stats.totalFiles}`);
+    outputChannel.appendLine(`  Local edges:     ${report.stats.localEdges}`);
+    outputChannel.appendLine(`  External edges:  ${report.stats.externalEdges}`);
+    outputChannel.appendLine(`  Avg imports:     ${report.stats.avgImports}`);
+    outputChannel.appendLine(`  Max imported by: ${report.stats.maxImportedBy}`);
+
+    if (report.cycles.length > 0) {
+      outputChannel.appendLine(`\nCircular Dependencies (${report.cycles.length}):`);
+      for (const c of report.cycles) {
+        const display = c.severity === "tight-couple"
+          ? `  ${c.cycle[0]} ↔ ${c.cycle[1]}`
+          : `  ${c.cycle.join(" → ")}`;
+        outputChannel.appendLine(`${display}  (${c.severity})`);
+      }
+    }
+
+    if (report.godFiles.length > 0) {
+      outputChannel.appendLine(`\nGod Files:`);
+      for (const gf of report.godFiles) {
+        outputChannel.appendLine(`  ${gf.file} — ${gf.importedBy} dependents, ${gf.imports} imports`);
+      }
+    }
+
+    if (report.orphans.length > 0) {
+      outputChannel.appendLine(`\nIsolated Files (${report.orphans.length}):`);
+      for (const o of report.orphans) {
+        outputChannel.appendLine(`  ${o}`);
+      }
     }
 
     outputChannel.show();

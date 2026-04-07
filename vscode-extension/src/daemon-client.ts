@@ -31,6 +31,31 @@ export interface DependentEntry {
   kind: string;
 }
 
+export interface HealthResult {
+  score: number;
+  grade: string;
+  summary: string;
+  penalties: {
+    cycles: number;
+    godFiles: number;
+    deepChains: number;
+    orphans: number;
+    hubConcentration: number;
+  };
+  cycles: Array<{ cycle: string[]; length: number; severity: string }>;
+  godFiles: Array<{ file: string; importedBy: number; imports: number; totalConnections: number }>;
+  orphans: string[];
+  stats: {
+    totalFiles: number;
+    avgImports: number;
+    avgImportedBy: number;
+    maxImports: number;
+    maxImportedBy: number;
+    localEdges: number;
+    externalEdges: number;
+  };
+}
+
 export class DaemonClient {
   constructor(private port: number) {}
 
@@ -52,6 +77,10 @@ export class DaemonClient {
 
   async dependents(file: string): Promise<{ file: string; dependents: DependentEntry[] }> {
     return this.get(`/dependents?file=${encodeURIComponent(file)}`);
+  }
+
+  async health(): Promise<HealthResult> {
+    return this.get("/health");
   }
 
   async isRunning(): Promise<boolean> {
