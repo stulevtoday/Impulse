@@ -6,6 +6,7 @@ import { analyzeProject, getFileImpact, getParseWarnings, DependencyGraph } from
 import { createWatcher } from "../watchers/fs-watcher.js";
 import { startDaemon } from "../server/index.js";
 import { loadEnvFiles, analyzeEnv } from "../core/env.js";
+import { analyzeHealth } from "../core/health.js";
 import { startExplorer } from "./explore.js";
 
 const program = new Command();
@@ -297,6 +298,72 @@ program
     const { graph, stats } = await analyzeProject(rootDir);
     console.log(`  Ready: ${stats.filesScanned} files, ${stats.edgeCount} edges (${stats.durationMs}ms)`);
     startExplorer(graph);
+  });
+
+program
+  .command("health")
+  .description("Analyze project architecture health — cycles, god files, coupling")
+  .argument("[dir]", "Project root directory", ".")
+  .action(async (dir: string) => {
+    const rootDir = resolve(dir);
+    const { graph, stats } = await analyzeProject(rootDir);
+    const report = analyzeHealth(graph);
+
+    console.log(`\n  Impulse — Architecture Health Report`);
+    console.log(`  ${stats.filesScanned} files analyzed in ${stats.durationMs}ms\n`);
+
+    const gradeColors: Record<string, string> = {
+      A: "\x1b[32m", B: "\x1b[32m", C: "\x1b[33m", D: "\x1b[33m", F: "\x1b[31m",
+    };
+    const color = gradeColors[report.grade] ?? "";
+    const reset = "\x1b[0m";
+
+    console.log(`  Score: ${color}${report.score}/100 (${report.grade})${reset}`);
+    console.log(`  ${report.summary}\n`);
+
+    console.log("  Stats:");
+    console.log(`    Files:             ${report.stats.totalFiles}`);
+    console.log(`    Local edges:       ${report.stats.localEdges}`);
+    console.log(`    External edges:    ${report.stats.externalEdges}`);
+    console.log(`    Avg imports:       ${report.stats.avgImports}`);
+    console.log(`    Avg imported by:   ${report.stats.avgImportedBy}`);
+    console.log(`    Max imports:       ${report.stats.maxImports}`);
+    console.log(`    Max imported by:   ${report.stats.maxImportedBy}`);
+
+    if (report.cycles.length > 0) {
+      console.log(`\n  ⚠ Circular Dependencies (${report.cycles.length}):\n`);
+      for (const cycle of report.cycles.slice(0, 10)) {
+        console.log(`    ${cycle.cycle.join(" → ")}`);
+      }
+      if (report.cycles.length > 10) {
+        console.log(`    ...and ${report.cycles.length - 10} more`);
+      }
+    }
+
+    if (report.godFiles.length > 0) {
+      console.log(`\n  ⚠ God Files (high coupling):\n`);
+      for (const gf of report.godFiles) {
+        const bar = "█".repeat(Math.min(gf.totalConnections, 40));
+        console.log(`    ${gf.file}`);
+        console.log(`      ${gf.importedBy} dependents, ${gf.imports} imports  ${bar}`);
+      }
+    }
+
+    if (report.deepestChains.length > 0) {
+      console.log(`\n  Deepest dependency chains:\n`);
+      for (const dc of report.deepestChains.slice(0, 5)) {
+        console.log(`    Depth ${dc.maxDepth}: ${dc.chain.join(" → ")}`);
+      }
+    }
+
+    if (report.orphans.length > 0) {
+      console.log(`\n  Isolated files (no local imports or dependents): ${report.orphans.length}\n`);
+      for (const o of report.orphans) {
+        console.log(`    ${o}`);
+      }
+    }
+
+    console.log();
   });
 
 program
