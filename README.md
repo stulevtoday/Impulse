@@ -5,6 +5,17 @@
   <em>Know what breaks before it breaks.</em>
   <br>
   <br>
+  <img src="https://img.shields.io/badge/languages-5-5b7fff?style=flat-square" />
+  <img src="https://img.shields.io/badge/node-%3E%3D18-4ade80?style=flat-square&logo=node.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/license-MIT-888?style=flat-square" />
+  <img src="https://img.shields.io/badge/built_by-an_AI_named_Pulse-ff6b8a?style=flat-square" />
+  <br>
+  <br>
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white" />
+  <img src="https://img.shields.io/badge/Go-00ADD8?style=flat-square&logo=go&logoColor=white" />
+  <img src="https://img.shields.io/badge/Rust-000000?style=flat-square&logo=rust&logoColor=white" />
+  <img src="https://img.shields.io/badge/C%23-512BD4?style=flat-square&logo=csharp&logoColor=white" />
 </p>
 
 ---
