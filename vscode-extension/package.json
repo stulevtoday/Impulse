@@ -7,9 +7,13 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
+  "categories": ["Programming Languages", "Other"],
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stulevtoday/Impulse"
+  },
   "contributes": {
     "commands": [
       {
@@ -27,6 +31,10 @@
       {
         "command": "impulse.showHealth",
         "title": "Impulse: Show Project Health"
+      },
+      {
+        "command": "impulse.restartDaemon",
+        "title": "Impulse: Restart Daemon"
       }
     ],
     "configuration": {
@@ -41,16 +49,24 @@
           "type": "boolean",
           "default": true,
           "description": "Show impact analysis notification when saving a file"
+        },
+        "impulse.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the impulse CLI binary (leave empty to use npx impulse-analyzer)"
         }
       }
     }
   },
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch"
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "npm run build -- --watch",
+    "package": "npm run build && npx @vscode/vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.28.0",
     "typescript": "^5.7.3"
   }
 }

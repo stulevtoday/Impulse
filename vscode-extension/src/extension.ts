@@ -1,10 +1,12 @@
 import * as vscode from "vscode";
 import { DaemonClient } from "./daemon-client";
+import { spawn, type ChildProcess } from "child_process";
 import * as path from "path";
 
 let client: DaemonClient;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
+let daemonProcess: ChildProcess | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration("impulse");
@@ -20,15 +22,12 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBarItem.command = "impulse.showImpact";
   context.subscriptions.push(statusBarItem);
 
-  updateStatusBar();
-  const statusInterval = setInterval(updateStatusBar, 10_000);
-  context.subscriptions.push({ dispose: () => clearInterval(statusInterval) });
-
   context.subscriptions.push(
     vscode.commands.registerCommand("impulse.showImpact", showImpact),
     vscode.commands.registerCommand("impulse.showDependencies", showDependencies),
     vscode.commands.registerCommand("impulse.showDependents", showDependents),
     vscode.commands.registerCommand("impulse.showHealth", showHealth),
+    vscode.commands.registerCommand("impulse.restartDaemon", restartDaemon),
   );
 
   if (config.get<boolean>("showImpactOnSave", true)) {
@@ -37,19 +36,134 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   }
 
-  outputChannel.appendLine(`Impulse extension activated (daemon port: ${port})`);
+  context.subscriptions.push({ dispose: stopDaemon });
+
+  ensureDaemon();
+
+  const statusInterval = setInterval(updateStatusBar, 10_000);
+  context.subscriptions.push({ dispose: () => clearInterval(statusInterval) });
 }
 
 export function deactivate(): void {
+  stopDaemon();
   statusBarItem?.dispose();
   outputChannel?.dispose();
 }
+
+// ── Daemon lifecycle ────────────────────────────────────────────────
+
+async function ensureDaemon(): Promise<void> {
+  statusBarItem.text = "$(loading~spin) Impulse";
+  statusBarItem.tooltip = "Connecting to daemon...";
+  statusBarItem.show();
+
+  if (await client.isRunning()) {
+    outputChannel.appendLine("Impulse daemon already running");
+    await updateStatusBar();
+    return;
+  }
+
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    statusBarItem.text = "$(circle-slash) Impulse";
+    statusBarItem.tooltip = "No workspace folder open";
+    return;
+  }
+
+  await startDaemon(workspaceRoot);
+}
+
+async function startDaemon(workspaceRoot: string): Promise<void> {
+  statusBarItem.text = "$(loading~spin) Impulse starting...";
+  statusBarItem.show();
+  outputChannel.appendLine(`Starting daemon for ${workspaceRoot}...`);
+
+  const config = vscode.workspace.getConfiguration("impulse");
+  const customPath = config.get<string>("cliPath", "");
+
+  const cmd = customPath || "npx";
+  const args = customPath
+    ? ["daemon", workspaceRoot]
+    : ["impulse-analyzer", "daemon", workspaceRoot];
+
+  try {
+    daemonProcess = spawn(cmd, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      cwd: workspaceRoot,
+      env: { ...process.env, FORCE_COLOR: "0" },
+      detached: false,
+    });
+
+    daemonProcess.stdout?.on("data", (data: Buffer) => {
+      outputChannel.appendLine(data.toString().trim());
+    });
+    daemonProcess.stderr?.on("data", (data: Buffer) => {
+      outputChannel.appendLine(`[stderr] ${data.toString().trim()}`);
+    });
+    daemonProcess.on("exit", (code) => {
+      outputChannel.appendLine(`Daemon exited with code ${code}`);
+      daemonProcess = null;
+      statusBarItem.text = "$(circle-slash) Impulse offline";
+      statusBarItem.tooltip = "Daemon stopped. Click to restart.";
+      statusBarItem.command = "impulse.restartDaemon";
+    });
+
+    for (let i = 0; i < 60; i++) {
+      await sleep(500);
+      if (await client.isRunning()) {
+        outputChannel.appendLine("Daemon ready");
+        await updateStatusBar();
+        return;
+      }
+    }
+
+    outputChannel.appendLine("Daemon did not become ready in 30s");
+    statusBarItem.text = "$(warning) Impulse timeout";
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`Failed to start daemon: ${msg}`);
+
+    if (msg.includes("ENOENT")) {
+      const action = await vscode.window.showWarningMessage(
+        "Impulse CLI not found. Install it?",
+        "npm install -g impulse-analyzer",
+      );
+      if (action) {
+        const terminal = vscode.window.createTerminal("Impulse Install");
+        terminal.sendText("npm install -g impulse-analyzer");
+        terminal.show();
+      }
+    }
+
+    statusBarItem.text = "$(circle-slash) Impulse offline";
+    statusBarItem.tooltip = "Could not start daemon";
+  }
+}
+
+function stopDaemon(): void {
+  if (daemonProcess) {
+    daemonProcess.kill();
+    daemonProcess = null;
+  }
+}
+
+async function restartDaemon(): Promise<void> {
+  stopDaemon();
+  await ensureDaemon();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ── Status bar ──────────────────────────────────────────────────────
 
 async function updateStatusBar(): Promise<void> {
   try {
     const status = await client.status();
     if (!status.ready) {
       statusBarItem.text = "$(loading~spin) Impulse indexing...";
+      statusBarItem.command = "impulse.showImpact";
       statusBarItem.show();
       return;
     }
@@ -57,18 +171,24 @@ async function updateStatusBar(): Promise<void> {
     try {
       const health = await client.health();
       statusBarItem.text = `$(pulse) ${health.grade} · ${status.nodes} nodes`;
-      statusBarItem.tooltip = `Impulse: ${health.score}/100 (${health.grade}) — ${status.nodes} nodes, ${status.edges} edges\n${health.summary}`;
+      statusBarItem.tooltip = `Impulse: ${health.score}/100 (${health.grade})\n${status.nodes} nodes, ${status.edges} edges\n${health.summary}`;
     } catch {
       statusBarItem.text = `$(pulse) ${status.nodes} nodes`;
       statusBarItem.tooltip = `Impulse: ${status.nodes} nodes, ${status.edges} edges`;
     }
+    statusBarItem.command = "impulse.showImpact";
     statusBarItem.show();
   } catch {
-    statusBarItem.text = "$(circle-slash) Impulse offline";
-    statusBarItem.tooltip = "Impulse daemon is not running. Start with: impulse daemon .";
-    statusBarItem.show();
+    if (!daemonProcess) {
+      statusBarItem.text = "$(circle-slash) Impulse offline";
+      statusBarItem.tooltip = "Click to start daemon";
+      statusBarItem.command = "impulse.restartDaemon";
+      statusBarItem.show();
+    }
   }
 }
+
+// ── Commands ────────────────────────────────────────────────────────
 
 function getRelativePath(doc: vscode.TextDocument): string | null {
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(doc.uri);
@@ -97,7 +217,7 @@ async function onFileSave(doc: vscode.TextDocument): Promise<void> {
       showImpactDetails(relPath, result);
     }
   } catch {
-    // daemon not running, silently ignore
+    // daemon not running — don't annoy the user
   }
 }
 
@@ -118,9 +238,9 @@ async function showImpact(): Promise<void> {
       return;
     }
     showImpactDetails(relPath, result);
-  } catch (err) {
+  } catch {
     vscode.window.showErrorMessage(
-      `Impulse daemon not reachable. Start with: impulse daemon .`,
+      "Impulse daemon not reachable. Start with: impulse daemon .",
     );
   }
 }
@@ -186,7 +306,7 @@ async function showHealth(): Promise<void> {
     const report = await client.health();
 
     outputChannel.clear();
-    outputChannel.appendLine(`Impulse — Architecture Health Report\n`);
+    outputChannel.appendLine("Impulse — Architecture Health Report\n");
     outputChannel.appendLine(`Score: ${report.score}/100 (${report.grade})`);
     outputChannel.appendLine(`${report.summary}\n`);
 
@@ -202,7 +322,7 @@ async function showHealth(): Promise<void> {
       outputChannel.appendLine("");
     }
 
-    outputChannel.appendLine(`Stats:`);
+    outputChannel.appendLine("Stats:");
     outputChannel.appendLine(`  Files:           ${report.stats.totalFiles}`);
     outputChannel.appendLine(`  Local edges:     ${report.stats.localEdges}`);
     outputChannel.appendLine(`  External edges:  ${report.stats.externalEdges}`);
@@ -220,16 +340,9 @@ async function showHealth(): Promise<void> {
     }
 
     if (report.godFiles.length > 0) {
-      outputChannel.appendLine(`\nGod Files:`);
+      outputChannel.appendLine("\nGod Files:");
       for (const gf of report.godFiles) {
         outputChannel.appendLine(`  ${gf.file} — ${gf.importedBy} dependents, ${gf.imports} imports`);
-      }
-    }
-
-    if (report.orphans.length > 0) {
-      outputChannel.appendLine(`\nIsolated Files (${report.orphans.length}):`);
-      for (const o of report.orphans) {
-        outputChannel.appendLine(`  ${o}`);
       }
     }
 
