@@ -79,6 +79,7 @@ impulse scan .
 | `daemon .` | HTTP API for IDE/tool integration |
 | `why A.ts B.ts .` | Show the dependency chain between two files |
 | `explore .` | Interactive terminal REPL |
+| `history .` | Health timeline across git commits |
 | `env .` | Find undefined/unused environment variables |
 | `ci .` | Preview the CI report locally |
 
@@ -115,6 +116,32 @@ It finds circular dependencies and classifies them by severity:
 - **tight-couple** (A ↔ B) — common pattern, mild penalty
 - **short-ring** (A → B → C → A) — worth investigating
 - **long-ring** (5+ files) — architectural problem
+
+## Health timeline
+
+See how your architecture evolved over time:
+
+```
+  impulse history .
+
+   90 ┤
+      │                  ●  ●  ●  ●  ●  ●  ●  ●  ●
+      │
+   85 ┤
+      │
+      │●  ●  ●  ●  ●  ●
+   79 ┤──────────────────────────────────────────────
+
+  Current:  82/100 (B)
+  Best:     87/100 (B)  ← 59498e5  feat: add totalExports
+  Worst:    82/100 (B)  ← c9fb3d4  feat: VS Code extension
+  Trend:    ↘ -5 over 15 commits
+
+  Significant changes:
+    ▼ -5  6e62e29  feat: symbol-level precision in impulse diff
+```
+
+Analyzes every commit via git worktree. 15 commits in under a second.
 
 ## Dead export detection
 

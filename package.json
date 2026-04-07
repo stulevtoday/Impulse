@@ -1,6 +1,6 @@
 {
   "name": "impulse-analyzer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Know what breaks before it breaks. Dependency graph + impact analysis for 5 languages.",
   "type": "module",
   "main": "dist/cli/index.js",
