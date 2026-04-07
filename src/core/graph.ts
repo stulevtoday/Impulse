@@ -178,6 +178,120 @@ export class DependencyGraph {
     return merged;
   }
 
+  /** Get all export nodes for a given file. */
+  getFileExports(filePath: string): GraphNode[] {
+    const result: GraphNode[] = [];
+    for (const node of this.nodes.values()) {
+      if (node.kind === "export" && node.filePath === filePath) {
+        result.push(node);
+      }
+    }
+    return result.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Symbol-level impact: follows uses_export chains precisely through
+   * barrel re-exports, then does file-level BFS from actual consumers.
+   *
+   * Phase 1: trace uses_export edges, hopping through re-export nodes
+   *          in barrel files instead of fanning out via file imports.
+   * Phase 2: from the set of genuine consumers, standard file-level BFS.
+   */
+  analyzeExportImpact(filePath: string, exportName: string, maxDepth = 10): ImpactResult {
+    const startId = `export:${filePath}:${exportName}`;
+    if (!this.nodes.has(startId)) {
+      return { changed: `${filePath}:${exportName}`, affected: [] };
+    }
+
+    const affected: ImpactResult["affected"] = [];
+    const visited = new Set<string>();
+
+    // Phase 1 — follow uses_export chains through re-exports
+    const directConsumers = new Set<string>();
+    const exportQueue: string[] = [startId];
+    const visitedExports = new Set<string>([startId]);
+
+    while (exportQueue.length > 0) {
+      const eid = exportQueue.shift()!;
+      const users = this.getDependents(eid).filter((e) => e.kind === "uses_export");
+
+      for (const edge of users) {
+        const userNode = this.nodes.get(edge.from);
+        if (!userNode || userNode.kind !== "file") continue;
+
+        directConsumers.add(edge.from);
+
+        const reExportId = `export:${userNode.filePath}:${exportName}`;
+        if (this.nodes.has(reExportId) && !visitedExports.has(reExportId)) {
+          visitedExports.add(reExportId);
+          exportQueue.push(reExportId);
+        }
+      }
+    }
+
+    // Phase 2 — file-level BFS from direct consumers
+    const queue: Array<{ id: string; depth: number; path: string[] }> = [];
+
+    for (const fileId of directConsumers) {
+      if (visited.has(fileId)) continue;
+      visited.add(fileId);
+      const node = this.nodes.get(fileId);
+      if (!node) continue;
+      affected.push({ nodeId: fileId, node, depth: 1, path: [startId, fileId] });
+      queue.push({ id: fileId, depth: 1, path: [startId, fileId] });
+    }
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current.depth >= maxDepth) continue;
+
+      for (const edge of this.getDependents(current.id)) {
+        if (visited.has(edge.from)) continue;
+        visited.add(edge.from);
+        const node = this.nodes.get(edge.from);
+        if (!node) continue;
+        const path = [...current.path, edge.from];
+        affected.push({ nodeId: edge.from, node, depth: current.depth + 1, path });
+        queue.push({ id: edge.from, depth: current.depth + 1, path });
+      }
+    }
+
+    affected.sort((a, b) => a.depth - b.depth);
+    return { changed: `${filePath}:${exportName}`, affected };
+  }
+
+  /**
+   * Multi-symbol impact: union of precise symbol-level analysis for
+   * several exports. Returns per-symbol breakdown.
+   */
+  analyzeExportsImpact(
+    filePath: string,
+    exportNames: string[],
+    maxDepth = 10,
+  ): { merged: ImpactResult; perSymbol: Map<string, ImpactResult> } {
+    const perSymbol = new Map<string, ImpactResult>();
+    const merged: ImpactResult = {
+      changed: `${filePath}:[${exportNames.join(",")}]`,
+      affected: [],
+    };
+    const seen = new Set<string>();
+
+    for (const name of exportNames) {
+      const result = this.analyzeExportImpact(filePath, name, maxDepth);
+      perSymbol.set(name, result);
+
+      for (const item of result.affected) {
+        if (!seen.has(item.nodeId)) {
+          seen.add(item.nodeId);
+          merged.affected.push(item);
+        }
+      }
+    }
+
+    merged.affected.sort((a, b) => a.depth - b.depth);
+    return { merged, perSymbol };
+  }
+
   get stats() {
     let edgeCount = 0;
     let fileCount = 0;

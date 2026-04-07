@@ -61,16 +61,33 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         return;
       }
       const maxDepth = parseInt(query.depth ?? "10", 10);
-      const impact = getFileImpact(state!.graph, file, maxDepth);
-      json(res, 200, {
-        changed: impact.changed,
-        affected: impact.affected.map((a) => ({
-          file: a.node.filePath,
-          depth: a.depth,
-          kind: a.node.kind,
-        })),
-        count: impact.affected.length,
-      });
+      const symbol = query.symbol;
+
+      if (symbol) {
+        const impact = state!.graph.analyzeExportImpact(file, symbol, maxDepth);
+        const fileAffected = impact.affected.filter((a) => a.node.kind === "file");
+        json(res, 200, {
+          changed: file,
+          symbol,
+          affected: fileAffected.map((a) => ({ file: a.node.filePath, depth: a.depth })),
+          count: fileAffected.length,
+          precision: "symbol",
+        });
+      } else {
+        const impact = getFileImpact(state!.graph, file, maxDepth);
+        const exports = state!.graph.getFileExports(file);
+        json(res, 200, {
+          changed: impact.changed,
+          affected: impact.affected.map((a) => ({
+            file: a.node.filePath,
+            depth: a.depth,
+            kind: a.node.kind,
+          })),
+          count: impact.affected.length,
+          precision: "file",
+          exports: exports.map((e) => e.name),
+        });
+      }
       break;
     }
 
