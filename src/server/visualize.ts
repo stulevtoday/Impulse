@@ -207,12 +207,21 @@ async function main() {
     .attr("stroke", d => d3.color(nodeColor(d)).brighter(0.5))
     .attr("stroke-width", 1);
 
+  const allBases = nodes.map(n => baseName(n));
+  const dupes = new Set(allBases.filter((b, i) => allBases.indexOf(b) !== i));
+  const labelOf = n => {
+    const base = baseName(n);
+    if (!dupes.has(base)) return base;
+    const parts = n.file.split("/");
+    return parts.length > 1 ? parts.slice(-2).join("/") : base;
+  };
+
   node.append("text")
-    .text(d => baseName(d))
+    .text(d => labelOf(d))
     .attr("dx", d => d.radius + 4)
     .attr("dy", 3)
-    .attr("fill", "#888")
-    .attr("font-size", d => d.radius > 8 ? 11 : 0)
+    .attr("fill", "#999")
+    .attr("font-size", d => d.radius > 6 ? 11 : 0)
     .style("pointer-events", "none");
 
   const tooltip = document.getElementById("tooltip");
