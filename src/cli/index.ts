@@ -6,6 +6,7 @@ import { analyzeProject, getFileImpact, getParseWarnings, DependencyGraph } from
 import { createWatcher } from "../watchers/fs-watcher.js";
 import { startDaemon } from "../server/index.js";
 import { loadEnvFiles, analyzeEnv } from "../core/env.js";
+import { startExplorer } from "./explore.js";
 
 const program = new Command();
 
@@ -284,6 +285,18 @@ program
     }
 
     console.log(`  Total: ${vars.length} env vars (${undefined_.length} undefined, ${unused.length} unused)\n`);
+  });
+
+program
+  .command("explore")
+  .description("Interactive graph explorer — navigate dependencies in the terminal")
+  .argument("[dir]", "Project root directory", ".")
+  .action(async (dir: string) => {
+    const rootDir = resolve(dir);
+    console.log(`\n  Impulse — indexing ${rootDir}...`);
+    const { graph, stats } = await analyzeProject(rootDir);
+    console.log(`  Ready: ${stats.filesScanned} files, ${stats.edgeCount} edges (${stats.durationMs}ms)`);
+    startExplorer(graph);
   });
 
 program
