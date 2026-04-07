@@ -5,6 +5,7 @@ import { getParseWarnings } from "../core/parser.js";
 import { createWatcher } from "../watchers/fs-watcher.js";
 import { loadGraphCache, saveGraphCache } from "../core/cache.js";
 import { analyzeHealth } from "../core/health.js";
+import { getVisualizationHTML } from "./visualize.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -12,13 +13,17 @@ export interface DaemonState {
   graph: DependencyGraph;
   ctx: ExtractorContext;
   rootDir: string;
+  port: number;
   ready: boolean;
 }
 
 let state: DaemonState | null = null;
 
 function json(res: ServerResponse, status: number, data: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+  });
   res.end(JSON.stringify(data));
 }
 
@@ -145,6 +150,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       break;
     }
 
+    case "/visualize": {
+      res.writeHead(200, {
+        "Content-Type": "text/html",
+        "Access-Control-Allow-Origin": "*",
+      });
+      res.end(getVisualizationHTML(state!.port));
+      break;
+    }
+
     case "/health": {
       const report = analyzeHealth(state!.graph);
       json(res, 200, {
@@ -163,7 +177,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     default:
       json(res, 404, { error: "Not found", endpoints: [
         "/status", "/impact?file=", "/graph", "/files",
-        "/dependencies?file=", "/dependents?file=", "/health", "/warnings",
+        "/dependencies?file=", "/dependents?file=", "/health", "/warnings", "/visualize",
       ]});
   }
 }
@@ -184,7 +198,7 @@ export async function startDaemon(
   }
 
   const { graph, ctx, stats } = await analyzeProject(absRoot);
-  state = { graph, ctx, rootDir: absRoot, ready: true };
+  state = { graph, ctx, rootDir: absRoot, port, ready: true };
 
   console.log(
     `  Indexed: ${stats.filesScanned} files, ${stats.nodeCount} nodes, ${stats.edgeCount} edges (${stats.durationMs}ms)`,
@@ -241,7 +255,8 @@ export async function startDaemon(
 
   server.listen(port, () => {
     console.log(`\n  Daemon listening on http://localhost:${port}`);
-    console.log("  Endpoints: /status /impact /graph /files /dependencies /dependents /health /warnings\n");
+    console.log("  Endpoints: /status /impact /graph /files /dependencies /dependents /health /warnings");
+    console.log(`  Visualize: http://localhost:${port}/visualize\n`);
   });
 }
 

@@ -152,12 +152,21 @@ node dist/cli/index.js env /path/to/your/project
 - VS Code extension (in `vscode-extension/`)
 - Graph caching for instant daemon startup
 
+### Visualize the graph
+
+```bash
+node dist/cli/index.js daemon /path/to/your/project
+# Open http://localhost:4096/visualize in your browser
+```
+
+Interactive D3.js force-directed graph — color-coded by directory, sized by connections. Click any node to see its impact radius. Search to filter.
+
 ## Roadmap
 
-- [ ] Interactive graph visualization
 - [ ] Config file change tracking (tsconfig, package.json, go.mod)
 - [ ] Unix socket for daemon
 - [ ] Rust support
+- [ ] Symbol-level dependency tracking (export → import mapping)
 
 ## The Story
 
