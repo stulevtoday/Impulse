@@ -2,7 +2,7 @@
 
 import { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject, getParseWarnings } from "../core/index.js";
+import { analyzeProject, getParseWarnings, getFileImpact } from "../core/index.js";
 import { createWatcher } from "../watchers/fs-watcher.js";
 import { startDaemon } from "../server/index.js";
 import { loadEnvFiles, analyzeEnv } from "../core/env.js";
@@ -14,7 +14,8 @@ import { startExplorer } from "./explore.js";
 import { registerDiffCommand } from "./diff.js";
 import { registerImpactCommand } from "./impact.js";
 import { registerHistoryCommand } from "./history.js";
-import { analyzeHotspots, type HotspotRisk } from "../core/hotspots.js";
+import { analyzeHotspots, type Hotspot, type HotspotRisk } from "../core/hotspots.js";
+import { execSync } from "node:child_process";
 
 const program = new Command();
 
@@ -927,8 +928,11 @@ async function runDashboard(): Promise<void> {
 
   process.stdout.write(`\n  ${dim}Scanning...${reset}`);
 
-  const { graph, stats } = await analyzeProject(rootDir);
-  const health = analyzeHealth(graph);
+  const [{ graph, stats }, config] = await Promise.all([
+    analyzeProject(rootDir),
+    loadConfig(rootDir),
+  ]);
+  const health = analyzeHealth(graph, config.boundaries);
 
   process.stdout.write(`\r\x1b[K`);
 
@@ -959,30 +963,84 @@ async function runDashboard(): Promise<void> {
     console.log(`  ${green}No structural issues${reset}`);
   }
 
-  const topFiles = graph
-    .allNodes()
-    .filter((n) => n.kind === "file")
-    .map((n) => ({
-      path: n.filePath,
-      deps: graph.getDependents(n.id).filter((e) => e.kind === "imports").length,
-    }))
-    .sort((a, b) => b.deps - a.deps)
-    .slice(0, 3)
-    .filter((f) => f.deps > 0);
+  // ── Uncommitted changes impact ──
+  const changedFiles = getDashboardChangedFiles(rootDir);
+  if (changedFiles.length > 0) {
+    const fileSet = new Set(graph.allNodes().filter((n) => n.kind === "file").map((n) => n.filePath));
+    const knownChanged = changedFiles.filter((f) => fileSet.has(f));
 
-  if (topFiles.length > 0) {
-    console.log(`\n  ${dim}Most depended on:${reset}`);
-    for (const f of topFiles) {
-      console.log(`    ${cyan}${f.path}${reset}  ${dim}← ${f.deps} files${reset}`);
+    const allAffected = new Map<string, { depth: number; via: string }>();
+    const changedSet = new Set(knownChanged);
+
+    for (const file of knownChanged) {
+      const impact = getFileImpact(graph, file);
+      for (const item of impact.affected) {
+        if (item.node.kind !== "file" || changedSet.has(item.node.filePath)) continue;
+        const existing = allAffected.get(item.node.filePath);
+        if (!existing || item.depth < existing.depth) {
+          allAffected.set(item.node.filePath, { depth: item.depth, via: file });
+        }
+      }
+    }
+
+    console.log(`\n  ${bold}Uncommitted changes:${reset}  ${changedFiles.length} file(s) changed → ${allAffected.size} affected`);
+
+    if (allAffected.size > 0) {
+      const sorted = [...allAffected.entries()].sort((a, b) => a[1].depth - b[1].depth);
+      const testFiles = sorted.filter(([f]) => f.includes("test") || f.includes("spec"));
+      const srcFiles = sorted.filter(([f]) => !f.includes("test") && !f.includes("spec"));
+
+      for (const [file, info] of srcFiles.slice(0, 5)) {
+        const depth = info.depth === 1 ? "direct" : `depth ${info.depth}`;
+        console.log(`    ${yellow}→${reset} ${file}  ${dim}(${depth} via ${info.via})${reset}`);
+      }
+      if (srcFiles.length > 5) {
+        console.log(`    ${dim}...and ${srcFiles.length - 5} more${reset}`);
+      }
+      if (testFiles.length > 0) {
+        console.log(`    ${cyan}⚡ ${testFiles.length} test file(s) to re-run${reset}`);
+      }
     }
   }
 
+  // ── Top hotspots ──
+  const hotspotReport = analyzeHotspots(graph, rootDir, 100);
+  const topHotspots = hotspotReport.hotspots
+    .filter((h) => h.risk === "critical" || h.risk === "high" || h.risk === "medium")
+    .slice(0, 3);
+
+  if (topHotspots.length > 0) {
+    const riskColors: Record<HotspotRisk, string> = {
+      critical: red, high: yellow, medium: cyan, low: dim,
+    };
+    console.log(`\n  ${dim}Hotspots:${reset}`);
+    for (const h of topHotspots) {
+      const color = riskColors[h.risk];
+      console.log(`    ${color}${h.risk.toUpperCase().padEnd(8)}${reset} ${h.file}  ${dim}${h.changes} changes · ${h.affected} affected${reset}`);
+    }
+  }
+
+  // ── Suggestions ──
   console.log(`\n  ${dim}Try:${reset}`);
-  if (topFiles.length > 0) {
-    console.log(`    ${bold}impulse impact ${topFiles[0].path} .${reset}   ${dim}what breaks if you change this?${reset}`);
+  if (changedFiles.length > 0) {
+    console.log(`    ${bold}impulse diff .${reset}                ${dim}full impact of your changes${reset}`);
   }
   console.log(`    ${bold}impulse health .${reset}              ${dim}full architecture report${reset}`);
+  console.log(`    ${bold}impulse hotspots .${reset}            ${dim}high-risk files${reset}`);
   console.log(`    ${bold}impulse visualize .${reset}           ${dim}interactive graph in browser${reset}`);
-  console.log(`    ${bold}impulse suggest .${reset}             ${dim}refactoring suggestions${reset}`);
   console.log();
+}
+
+function getDashboardChangedFiles(rootDir: string): string[] {
+  try {
+    const raw = execSync("git diff --name-only HEAD", {
+      cwd: rootDir,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    if (!raw) return [];
+    return raw.split("\n").filter((f) => f.length > 0);
+  } catch {
+    return [];
+  }
 }
