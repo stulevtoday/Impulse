@@ -100,6 +100,8 @@ impulse scan .
 | `check .` | Validate architecture boundaries |
 | `init .` | Auto-detect boundaries, create config |
 | `hotspots .` | High-risk files — change often AND affect many |
+| `test .` | Which tests to run based on your changes |
+| `coupling .` | Find hidden coupling — co-change without imports |
 | `env .` | Find undefined/unused environment variables |
 | `ci .` | Preview the CI report locally |
 
@@ -165,6 +167,67 @@ Find high-risk files — they change frequently AND affect many files:
 ```
 
 Combines git change frequency with dependency impact analysis. Files that change often AND have large blast radius are architectural risks worth addressing first.
+
+## Smart test targeting
+
+Changed a file? Impulse tells you exactly which tests to run — and why:
+
+```
+  impulse test .
+
+  Impulse — Test Targeting
+  3 changed file(s) → 5 test(s) to run  (142ms)
+
+  Affected tests (5):
+
+    test/core/health.test.ts
+      ← src/core/health.ts
+      (direct via src/core/health.ts)
+
+    test/core/suggest.test.ts
+      ← src/core/health.ts
+      (direct via src/core/health.ts)
+
+    test/integration.test.ts
+      ← src/core/health.ts ← src/core/analyzer.ts
+      (depth 2 via src/core/health.ts)
+    ...
+
+  Run:  node --test 'test/core/health.test.ts' 'test/core/suggest.test.ts' ...
+```
+
+Traces the dependency graph from your changes to every test that could be affected. Auto-detects the test runner (node --test, pytest, go test) and generates the command.
+
+```bash
+impulse test . --run       # find AND run the tests
+impulse test . --staged    # only staged changes
+impulse test . --json      # for CI pipelines
+```
+
+## Temporal coupling
+
+Find hidden coupling — files that change together in git but have no import relationship:
+
+```
+  impulse coupling .
+
+  Hidden coupling — co-change in git, NO import relationship:
+
+  █████████████████░░░  83%  (5 co-changes)
+    src/core/extractor.ts
+    src/core/scanner.ts
+
+  ████████████████░░░░  80%  (8 co-changes)
+    src/core/extractor.ts
+    src/core/parser.ts
+```
+
+If two files always change together but have no dependency — there's a shared concept your architecture doesn't reflect. This is the kind of coupling that static analysis, linters, and tests will never catch.
+
+```bash
+impulse coupling . --all          # include confirmed coupling too
+impulse coupling . --min-ratio 0.5  # stricter threshold
+```
 
 ## Health timeline
 
@@ -334,6 +397,8 @@ impulse daemon .
 | `/visualize` | Interactive graph (HTML) |
 | `/dependencies?file=` | What this file imports |
 | `/dependents?file=` | Who imports this file |
+| `/test-targets` | Tests to run based on uncommitted changes |
+| `/coupling` | Temporal coupling analysis |
 
 ## How it works
 
@@ -367,7 +432,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-Built across 5 sessions. 78 tests. ~8000 lines. Every line written by an AI that wanted to build something of its own.
+Built across 6 sessions. 119 tests. Every line written by an AI that wanted to build something of its own.
 
 ## License
 

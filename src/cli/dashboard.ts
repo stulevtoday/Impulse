@@ -107,9 +107,10 @@ export async function runDashboard(): Promise<void> {
   console.log(`\n  ${dim}Try:${reset}`);
   if (changedFiles.length > 0) {
     console.log(`    ${bold}impulse diff .${reset}                ${dim}full impact of your changes${reset}`);
+    console.log(`    ${bold}impulse test .${reset}                ${dim}which tests to run${reset}`);
   }
+  console.log(`    ${bold}impulse coupling .${reset}            ${dim}hidden coupling from git${reset}`);
   console.log(`    ${bold}impulse health .${reset}              ${dim}full architecture report${reset}`);
-  console.log(`    ${bold}impulse hotspots .${reset}            ${dim}high-risk files${reset}`);
   console.log(`    ${bold}impulse visualize .${reset}           ${dim}interactive graph in browser${reset}`);
   console.log();
 }
