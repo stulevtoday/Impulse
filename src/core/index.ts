@@ -22,3 +22,5 @@ export { findTestTargets, getChangedFiles, isTestFile } from "./test-targets.js"
 export type { TestTarget, TestTargetReport } from "./test-targets.js";
 export { analyzeCoupling } from "./coupling.js";
 export type { CouplingPair, CouplingReport, CouplingKind } from "./coupling.js";
+export { focusFile } from "./focus.js";
+export type { FocusReport, FocusExport } from "./focus.js";

@@ -18,6 +18,7 @@ import { registerHotspotsCommand } from "./hotspots.js";
 import { registerExportsCommand } from "./exports.js";
 import { registerTestCommand } from "./test-cmd.js";
 import { registerCouplingCommand } from "./coupling.js";
+import { registerFocusCommand } from "./focus.js";
 import { runDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -318,6 +319,7 @@ registerHotspotsCommand(program);
 registerExportsCommand(program);
 registerTestCommand(program);
 registerCouplingCommand(program);
+registerFocusCommand(program);
 
 program
   .command("daemon")

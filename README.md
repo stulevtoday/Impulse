@@ -102,6 +102,7 @@ impulse scan .
 | `hotspots .` | High-risk files — change often AND affect many |
 | `test .` | Which tests to run based on your changes |
 | `coupling .` | Find hidden coupling — co-change without imports |
+| `focus file.ts .` | Deep X-ray of a single file |
 | `env .` | Find undefined/unused environment variables |
 | `ci .` | Preview the CI report locally |
 
@@ -228,6 +229,37 @@ If two files always change together but have no dependency — there's a shared 
 impulse coupling . --all          # include confirmed coupling too
 impulse coupling . --min-ratio 0.5  # stricter threshold
 ```
+
+## File focus
+
+Everything about one file in a single view:
+
+```
+  impulse focus src/core/graph.ts .
+
+  Impulse — Focus: src/core/graph.ts
+
+  Imports   2 local, 0 external
+  Imported by  32 file(s)
+
+  Exports  5 total
+    ✓ DependencyGraph  → 24 consumer(s)
+    ✓ GraphNode        → 10 consumer(s)
+    ✓ GraphEdge        → 8 consumer(s)
+
+  Blast radius  39 file(s)
+    ███████████████ 25  (direct)
+    ████████ 14         (depth 2)
+
+  Test coverage  9 test(s)
+    ⚡ test/core/graph.test.ts
+    ⚡ test/core/health.test.ts
+    ...
+
+  Git  8 change(s), last 4 minutes ago
+```
+
+Imports, dependents, exports, blast radius, test coverage, git history, co-changers — one command, full picture.
 
 ## Health timeline
 
@@ -399,6 +431,7 @@ impulse daemon .
 | `/dependents?file=` | Who imports this file |
 | `/test-targets` | Tests to run based on uncommitted changes |
 | `/coupling` | Temporal coupling analysis |
+| `/focus?file=path` | Deep analysis of a single file |
 
 ## How it works
 

@@ -12,6 +12,7 @@ import { checkBoundaries } from "../core/boundaries.js";
 import { analyzeHotspots } from "../core/hotspots.js";
 import { findTestTargets, getChangedFiles } from "../core/test-targets.js";
 import { analyzeCoupling } from "../core/coupling.js";
+import { focusFile } from "../core/focus.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -248,6 +249,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       break;
     }
 
+    case "/focus": {
+      const file = query.file;
+      if (!file) {
+        json(res, 400, { error: "Missing ?file= parameter" });
+        return;
+      }
+      const report = focusFile(state!.graph, file, state!.rootDir);
+      json(res, 200, report);
+      break;
+    }
+
     case "/coupling": {
       const maxCommits = parseInt(query.commits ?? "300", 10);
       const minCochanges = parseInt(query.minCochanges ?? "3", 10);
@@ -271,7 +283,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         "/status", "/impact?file=", "/graph", "/files",
         "/dependencies?file=", "/dependents?file=", "/health", "/suggest",
         "/check", "/exports", "/warnings", "/visualize", "/hotspots",
-        "/test-targets", "/coupling",
+        "/test-targets", "/coupling", "/focus?file=",
       ]});
   }
 }
