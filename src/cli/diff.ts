@@ -1,7 +1,8 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
 import { analyzeProject, getFileImpact } from "../core/index.js";
-import { parseFile, rootNode, type SyntaxNode } from "../core/parser.js";
+import { parseFile } from "../core/parser.js";
+import { rootNode, type SyntaxNode } from "../core/parser-types.js";
 
 interface LineRange {
   start: number;

@@ -1,41 +1,18 @@
-import { Parser, Language, type Node, type Tree } from "web-tree-sitter";
+import { Parser, Language } from "web-tree-sitter";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { createRequire } from "node:module";
+import type { ParseResult, ParseWarning } from "./parser-types.js";
 
-export type SyntaxNode = Omit<
-  Node,
-  "children" | "namedChildren" | "parent"
-> & {
-  readonly children: SyntaxNode[];
-  readonly namedChildren: SyntaxNode[];
-  readonly parent: SyntaxNode | null;
-};
+export type { SyntaxNode, ParseResult, ParseWarning, Tree } from "./parser-types.js";
+export { rootNode } from "./parser-types.js";
 
-export function rootNode(tree: Tree): SyntaxNode {
-  return tree.rootNode as unknown as SyntaxNode;
-}
-
-export type { Tree };
+type LanguageId = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp";
 
 const require = createRequire(import.meta.url);
 
 function wasmPath(name: string): string {
   return require.resolve(`tree-sitter-wasms/out/${name}`);
-}
-
-type LanguageId = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp";
-
-export interface ParseResult {
-  filePath: string;
-  tree: Tree | null;
-  source: string;
-  language: LanguageId;
-}
-
-export interface ParseWarning {
-  filePath: string;
-  error: string;
 }
 
 const warnings: ParseWarning[] = [];

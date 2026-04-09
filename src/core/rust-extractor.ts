@@ -1,4 +1,4 @@
-import { rootNode, type ParseResult, type SyntaxNode } from "./parser.js";
+import { rootNode, type ParseResult, type SyntaxNode } from "./parser-types.js";
 import type { GraphNode, GraphEdge } from "./graph-types.js";
 import type { ExtractorContext, ExtractionResult } from "./types.js";
 import { dirname, join } from "node:path";

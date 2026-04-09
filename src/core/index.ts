@@ -3,7 +3,7 @@ export type { GraphNode, GraphEdge, ImpactResult, NodeKind, EdgeKind } from "./g
 export { scanProject } from "./scanner.js";
 export type { ScanResult } from "./scanner.js";
 export { parseFile, getParseWarnings, clearParseWarnings } from "./parser.js";
-export type { ParseResult, ParseWarning } from "./parser.js";
+export type { ParseResult, ParseWarning } from "./parser-types.js";
 export { extractDependencies } from "./extractor.js";
 export type { ExtractionResult, ExtractorContext } from "./extractor.js";
 export { analyzeProject, updateFile, getFileImpact } from "./analyzer.js";
