@@ -4,9 +4,6 @@ import { extname } from "node:path";
 import { createRequire } from "node:module";
 import type { ParseResult, ParseWarning } from "./parser-types.js";
 
-export type { SyntaxNode, ParseResult, ParseWarning, Tree } from "./parser-types.js";
-export { rootNode } from "./parser-types.js";
-
 type LanguageId = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp";
 
 const require = createRequire(import.meta.url);

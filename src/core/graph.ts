@@ -1,4 +1,4 @@
-export type { NodeKind, EdgeKind, GraphNode, GraphEdge, ImpactResult, SerializedGraph } from "./graph-types.js";
+export type { GraphNode, GraphEdge, ImpactResult, SerializedGraph } from "./graph-types.js";
 import type { GraphNode, GraphEdge, ImpactResult, SerializedGraph } from "./graph-types.js";
 
 export class DependencyGraph {

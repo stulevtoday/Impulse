@@ -10,6 +10,8 @@ import { generateSuggestions } from "../core/suggest.js";
 import { loadConfig } from "../core/config.js";
 import { checkBoundaries } from "../core/boundaries.js";
 import { analyzeHotspots } from "../core/hotspots.js";
+import { findTestTargets, getChangedFiles } from "../core/test-targets.js";
+import { analyzeCoupling } from "../core/coupling.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -246,11 +248,30 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       break;
     }
 
+    case "/coupling": {
+      const maxCommits = parseInt(query.commits ?? "300", 10);
+      const minCochanges = parseInt(query.minCochanges ?? "3", 10);
+      const minRatio = parseFloat(query.minRatio ?? "0.3");
+      const report = analyzeCoupling(state!.graph, state!.rootDir, maxCommits, minCochanges, minRatio);
+      json(res, 200, report);
+      break;
+    }
+
+    case "/test-targets": {
+      const staged = query.staged === "true";
+      const files = query.files ? query.files.split(",") : undefined;
+      const changedFiles = files ?? getChangedFiles(state!.rootDir, staged);
+      const report = findTestTargets(state!.graph, changedFiles);
+      json(res, 200, report);
+      break;
+    }
+
     default:
       json(res, 404, { error: "Not found", endpoints: [
         "/status", "/impact?file=", "/graph", "/files",
         "/dependencies?file=", "/dependents?file=", "/health", "/suggest",
         "/check", "/exports", "/warnings", "/visualize", "/hotspots",
+        "/test-targets", "/coupling",
       ]});
   }
 }
