@@ -1,4 +1,4 @@
-import type { GraphNode, GraphEdge } from "./graph.js";
+import type { GraphNode, GraphEdge } from "./graph-types.js";
 import type { PathAlias } from "./tsconfig.js";
 
 export interface ExtractionResult {

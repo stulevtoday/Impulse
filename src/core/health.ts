@@ -1,4 +1,6 @@
 import type { DependencyGraph, GraphNode } from "./graph.js";
+import type { BoundaryRule } from "./config-types.js";
+import { analyzeStability, type StabilityReport } from "./stability.js";
 
 export type CycleSeverity = "tight-couple" | "short-ring" | "long-ring";
 
@@ -27,6 +29,7 @@ export interface Penalties {
   deepChains: number;
   orphans: number;
   hubConcentration: number;
+  stabilityViolations: number;
 }
 
 export interface HealthReport {
@@ -38,6 +41,7 @@ export interface HealthReport {
   deepestChains: DepthAnalysis[];
   orphans: string[];
   penalties: Penalties;
+  stability?: StabilityReport;
   stats: {
     totalFiles: number;
     totalExports: number;
@@ -50,7 +54,10 @@ export interface HealthReport {
   };
 }
 
-export function analyzeHealth(graph: DependencyGraph): HealthReport {
+export function analyzeHealth(
+  graph: DependencyGraph,
+  boundaries?: Record<string, BoundaryRule>,
+): HealthReport {
   const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
   const importEdges = graph.allEdges().filter((e) => e.kind === "imports");
   const localEdges = importEdges.filter((e) => !e.to.startsWith("external:"));
@@ -62,11 +69,16 @@ export function analyzeHealth(graph: DependencyGraph): HealthReport {
   const orphans = findOrphans(graph, fileNodes);
   const stats = computeStats(graph, fileNodes, localEdges, externalEdges);
 
-  const { score, penalties } = computeScore(cycles, godFiles, deepestChains, orphans, stats);
-  const grade = scoreToGrade(score);
-  const summary = buildSummary(cycles, godFiles, deepestChains, orphans);
+  let stability: StabilityReport | undefined;
+  if (boundaries && Object.keys(boundaries).length > 0) {
+    stability = analyzeStability(graph, boundaries);
+  }
 
-  return { score, grade, summary, cycles, godFiles, deepestChains, orphans, penalties, stats };
+  const { score, penalties } = computeScore(cycles, godFiles, deepestChains, orphans, stats, stability);
+  const grade = scoreToGrade(score);
+  const summary = buildSummary(cycles, godFiles, deepestChains, orphans, stability);
+
+  return { score, grade, summary, cycles, godFiles, deepestChains, orphans, penalties, stability, stats };
 }
 
 function classifySeverity(cycleLength: number): CycleSeverity {
@@ -191,9 +203,11 @@ function longestPath(
 function findOrphans(graph: DependencyGraph, fileNodes: GraphNode[]): string[] {
   return fileNodes
     .filter((n) => {
-      const dependents = graph.getDependents(n.id);
-      const deps = graph.getDependencies(n.id);
-      return dependents.length === 0 && deps.filter((e) => !e.to.startsWith("external:")).length === 0;
+      const importedBy = graph.getDependents(n.id).filter((e) => e.kind === "imports");
+      const localImports = graph.getDependencies(n.id).filter(
+        (e) => e.kind === "imports" && !e.to.startsWith("external:"),
+      );
+      return importedBy.length === 0 && localImports.length === 0;
     })
     .map((n) => n.filePath)
     .sort();
@@ -235,6 +249,7 @@ function computeScore(
   deepChains: DepthAnalysis[],
   orphans: string[],
   stats: { totalFiles: number; maxImportedBy: number },
+  stability?: StabilityReport,
 ): { score: number; penalties: Penalties } {
   const penalties: Penalties = {
     cycles: 0,
@@ -242,6 +257,7 @@ function computeScore(
     deepChains: 0,
     orphans: 0,
     hubConcentration: 0,
+    stabilityViolations: 0,
   };
 
   let rawCyclePenalty = 0;
@@ -270,6 +286,10 @@ function computeScore(
   if (stats.maxImportedBy > 30) penalties.hubConcentration = 10;
   else if (stats.maxImportedBy > 20) penalties.hubConcentration = 5;
 
+  if (stability && stability.violations.length > 0) {
+    penalties.stabilityViolations = Math.min(stability.violations.length * 5, 15);
+  }
+
   const total = Object.values(penalties).reduce((a, b) => a + b, 0);
   const score = Math.max(0, Math.min(100, 100 - total));
 
@@ -289,6 +309,7 @@ function buildSummary(
   godFiles: GodFile[],
   deepChains: DepthAnalysis[],
   orphans: string[],
+  stability?: StabilityReport,
 ): string {
   const issues: string[] = [];
 
@@ -306,6 +327,9 @@ function buildSummary(
   if (godFiles.length > 0) issues.push(`${godFiles.length} god file(s)`);
   if (deepChains.length > 0) issues.push(`max chain depth ${deepChains[0].maxDepth}`);
   if (orphans.length > 0) issues.push(`${orphans.length} isolated file(s)`);
+  if (stability && stability.violations.length > 0) {
+    issues.push(`${stability.violations.length} stability violation(s)`);
+  }
   if (issues.length === 0) return "No structural issues detected. Clean architecture.";
   return issues.join(", ");
 }

@@ -6,6 +6,10 @@ import { createWatcher } from "../watchers/fs-watcher.js";
 import { loadGraphCache, saveGraphCache } from "../core/cache.js";
 import { analyzeHealth } from "../core/health.js";
 import { getVisualizationHTML } from "./visualize.js";
+import { generateSuggestions } from "../core/suggest.js";
+import { loadConfig } from "../core/config.js";
+import { checkBoundaries } from "../core/boundaries.js";
+import { analyzeHotspots } from "../core/hotspots.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -196,7 +200,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
 
     case "/health": {
-      const report = analyzeHealth(state!.graph);
+      const config = await loadConfig(state!.rootDir);
+      const report = analyzeHealth(state!.graph, config.boundaries);
       json(res, 200, {
         score: report.score,
         grade: report.grade,
@@ -205,15 +210,47 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         cycles: report.cycles,
         godFiles: report.godFiles,
         orphans: report.orphans,
+        stability: report.stability ?? null,
         stats: report.stats,
       });
+      break;
+    }
+
+    case "/suggest": {
+      const health = analyzeHealth(state!.graph);
+      const report = generateSuggestions(state!.graph, health);
+      json(res, 200, {
+        suggestions: report.suggestions,
+        estimatedScoreImprovement: report.estimatedScoreImprovement,
+        currentScore: health.score,
+        potentialScore: health.score + report.estimatedScoreImprovement,
+      });
+      break;
+    }
+
+    case "/check": {
+      const config = await loadConfig(state!.rootDir);
+      if (!config.boundaries || Object.keys(config.boundaries).length === 0) {
+        json(res, 200, { error: "No boundaries defined in .impulserc.json", violations: [] });
+        break;
+      }
+      const report = checkBoundaries(state!.graph, config.boundaries);
+      json(res, 200, report);
+      break;
+    }
+
+    case "/hotspots": {
+      const maxCommits = parseInt(query.commits ?? "200", 10);
+      const report = analyzeHotspots(state!.graph, state!.rootDir, maxCommits);
+      json(res, 200, report);
       break;
     }
 
     default:
       json(res, 404, { error: "Not found", endpoints: [
         "/status", "/impact?file=", "/graph", "/files",
-        "/dependencies?file=", "/dependents?file=", "/health", "/warnings", "/visualize",
+        "/dependencies?file=", "/dependents?file=", "/health", "/suggest",
+        "/check", "/exports", "/warnings", "/visualize", "/hotspots",
       ]});
   }
 }
@@ -297,7 +334,7 @@ export async function startDaemon(
 
   server.listen(port, () => {
     console.log(`\n  Daemon listening on http://localhost:${port}`);
-    console.log("  Endpoints: /status /impact /graph /files /dependencies /dependents /health /warnings");
+    console.log("  Endpoints: /status /impact /graph /files /dependencies /dependents /health /suggest /exports /warnings");
     console.log(`  Visualize: http://localhost:${port}/visualize\n`);
   });
 }

@@ -2,6 +2,8 @@
 
 import { analyzeProject, getFileImpact } from "../core/analyzer.js";
 import { analyzeHealth, type HealthReport, type Penalties } from "../core/health.js";
+import { loadConfig as loadProjectConfig } from "../core/config.js";
+import { checkBoundaries, type BoundaryReport } from "../core/boundaries.js";
 import type { DependencyGraph } from "../core/graph.js";
 import { execSync } from "node:child_process";
 import { resolve, join } from "node:path";
@@ -78,9 +80,12 @@ function loadConfig(): CIConfig {
 
 // ── Analysis ───────────────────────────────────────────────────────
 
-async function analyzeBranch(dir: string): Promise<BranchAnalysis> {
+async function analyzeBranch(
+  dir: string,
+  boundaries?: Record<string, import("../core/config.js").BoundaryRule>,
+): Promise<BranchAnalysis> {
   const { graph, stats } = await analyzeProject(dir);
-  const health = analyzeHealth(graph);
+  const health = analyzeHealth(graph, boundaries);
   return { health, graph, filesScanned: stats.filesScanned, durationMs: stats.durationMs };
 }
 
@@ -329,6 +334,7 @@ function generateReport(
   changedFiles: string[],
   impact: ImpactSummary,
   config: CIConfig,
+  boundaryReport: BoundaryReport | null,
 ): string {
   const lines: string[] = [COMMENT_MARKER, ""];
 
@@ -537,6 +543,9 @@ function generateReport(
       lines.push(
         penaltyDeltaRow("Hub concentration", bp.hubConcentration, p.hubConcentration),
       );
+      lines.push(
+        penaltyDeltaRow("SDP violations", bp.stabilityViolations, p.stabilityViolations),
+      );
     } else {
       lines.push("| Penalty | Points |");
       lines.push("|---|---|");
@@ -545,9 +554,84 @@ function generateReport(
       if (p.deepChains > 0) lines.push(`| Deep chains | -${p.deepChains} |`);
       if (p.orphans > 0) lines.push(`| Orphans | -${p.orphans} |`);
       if (p.hubConcentration > 0) lines.push(`| Hub concentration | -${p.hubConcentration} |`);
+      if (p.stabilityViolations > 0) lines.push(`| SDP violations | -${p.stabilityViolations} |`);
     }
 
     lines.push("");
+    lines.push("</details>");
+    lines.push("");
+  }
+
+  // ── Boundary check ──
+  if (boundaryReport) {
+    if (boundaryReport.violations.length > 0) {
+      lines.push(
+        `### 🚧 ${boundaryReport.violations.length} boundary violation(s)`,
+      );
+      lines.push("");
+      lines.push("| From | To | Rule |");
+      lines.push("|---|---|---|");
+      for (const v of boundaryReport.violations.slice(0, 20)) {
+        lines.push(
+          `| \`${v.from}\` | \`${v.to}\` | **${v.fromBoundary}** cannot import from **${v.toBoundary}** |`,
+        );
+      }
+      if (boundaryReport.violations.length > 20) {
+        lines.push(
+          `| *...${boundaryReport.violations.length - 20} more* | | |`,
+        );
+      }
+      lines.push("");
+    } else {
+      lines.push("✅ All architecture boundaries respected.");
+      lines.push("");
+    }
+
+    if (boundaryReport.boundaryStats.length > 0) {
+      lines.push("<details>");
+      lines.push("<summary>🏗️ Boundary summary</summary>");
+      lines.push("");
+      lines.push("| Boundary | Files | Internal | Cross | Violations |");
+      lines.push("|---|---|---|---|---|");
+      for (const bs of boundaryReport.boundaryStats) {
+        const status = bs.violations > 0 ? `⚠️ ${bs.violations}` : "✅ 0";
+        lines.push(
+          `| **${bs.name}** (\`${bs.path}\`) | ${bs.files} | ${bs.internalEdges} | ${bs.externalEdges} | ${status} |`,
+        );
+      }
+      lines.push("");
+      lines.push("</details>");
+      lines.push("");
+    }
+  }
+
+  // ── Module stability ──
+  if (head.health.stability && head.health.stability.modules.length > 0) {
+    const stab = head.health.stability;
+    lines.push("<details>");
+    lines.push("<summary>📐 Module stability</summary>");
+    lines.push("");
+    lines.push("| Module | Files | Ca | Ce | Instability | Cohesion |");
+    lines.push("|---|---|---|---|---|---|");
+    for (const m of stab.modules) {
+      lines.push(
+        `| **${m.name}** | ${m.files} | ${m.ca} | ${m.ce} | ${m.instability.toFixed(2)} | ${m.cohesion.toFixed(2)} |`,
+      );
+    }
+    lines.push("");
+
+    if (stab.violations.length > 0) {
+      lines.push(`**${stab.violations.length} SDP violation(s):** stable module depends on less stable module`);
+      lines.push("");
+      for (const v of stab.violations) {
+        lines.push(`- **${v.from}** (I=${v.fromInstability.toFixed(2)}) → **${v.to}** (I=${v.toInstability.toFixed(2)})`);
+      }
+      lines.push("");
+    } else {
+      lines.push("✅ Dependencies flow toward stability.");
+      lines.push("");
+    }
+
     lines.push("</details>");
     lines.push("");
   }
@@ -637,6 +721,7 @@ function setOutputs(
   head: BranchAnalysis,
   base: BranchAnalysis | null,
   impact: ImpactSummary,
+  boundaryReport: BoundaryReport | null,
 ): void {
   const outputFile = process.env.GITHUB_OUTPUT;
   if (!outputFile) return;
@@ -645,6 +730,7 @@ function setOutputs(
   appendFileSync(outputFile, `grade=${head.health.grade}\n`);
   appendFileSync(outputFile, `affected=${impact.totalAffected}\n`);
   appendFileSync(outputFile, `breaking=${impact.breakingChanges.length}\n`);
+  appendFileSync(outputFile, `violations=${boundaryReport?.violations.length ?? 0}\n`);
   if (base) {
     appendFileSync(
       outputFile,
@@ -665,10 +751,15 @@ async function main(): Promise<void> {
   if (config.threshold > 0) console.log(`  Threshold: ${config.threshold}`);
   console.log();
 
-  // 1. Analyze PR branch
+  // 1. Load project config + analyze PR branch
+  const projectConfig = await loadProjectConfig(config.projectRoot);
+  const boundaries = projectConfig.boundaries && Object.keys(projectConfig.boundaries).length > 0
+    ? projectConfig.boundaries
+    : undefined;
+
   console.log("  Analyzing PR branch...");
   const { graph: headGraph, stats: headStats } = await analyzeProject(config.projectRoot);
-  const headHealth = analyzeHealth(headGraph);
+  const headHealth = analyzeHealth(headGraph, boundaries);
   const head: BranchAnalysis = {
     health: headHealth,
     graph: headGraph,
@@ -713,10 +804,21 @@ async function main(): Promise<void> {
     console.log(`  ✨ New exports: ${totalNew}`);
   }
 
-  // 4. Generate report
-  const report = generateReport(head, base, changedFiles, impact, config);
+  // 4. Boundary check
+  let boundaryReport: BoundaryReport | null = null;
+  if (boundaries) {
+    boundaryReport = checkBoundaries(headGraph, boundaries);
+    if (boundaryReport.violations.length > 0) {
+      console.log(`  🚧 Boundary violations: ${boundaryReport.violations.length}`);
+    } else {
+      console.log("  ✓ All boundaries respected");
+    }
+  }
 
-  // 5. Post comment or print to stdout
+  // 5. Generate report
+  const report = generateReport(head, base, changedFiles, impact, config, boundaryReport);
+
+  // 6. Post comment or print to stdout
   if (config.token && config.prNumber > 0 && config.repo) {
     console.log("\n  Posting comment...");
     await postOrUpdateComment(config.repo, config.prNumber, config.token, report);
@@ -726,10 +828,10 @@ async function main(): Promise<void> {
     console.log("\n  ─────────────────────────────────────────────────\n");
   }
 
-  // 6. Set GitHub Actions outputs
-  setOutputs(head, base, impact);
+  // 7. Set GitHub Actions outputs
+  setOutputs(head, base, impact, boundaryReport);
 
-  // 7. Threshold gate
+  // 8. Threshold gate
   if (config.threshold > 0 && head.health.score < config.threshold) {
     console.error(
       `\n  ❌ Health score ${head.health.score} is below threshold ${config.threshold}`,

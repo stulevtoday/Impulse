@@ -1,5 +1,5 @@
 export { DependencyGraph } from "./graph.js";
-export type { GraphNode, GraphEdge, ImpactResult, NodeKind, EdgeKind } from "./graph.js";
+export type { GraphNode, GraphEdge, ImpactResult, NodeKind, EdgeKind } from "./graph-types.js";
 export { scanProject } from "./scanner.js";
 export type { ScanResult } from "./scanner.js";
 export { parseFile, getParseWarnings, clearParseWarnings } from "./parser.js";

@@ -1,5 +1,5 @@
 import { rootNode, type ParseResult, type SyntaxNode } from "./parser.js";
-import type { GraphNode, GraphEdge } from "./graph.js";
+import type { GraphNode, GraphEdge } from "./graph-types.js";
 import type { ExtractorContext, ExtractionResult } from "./types.js";
 import { dirname, join, relative } from "node:path";
 import { existsSync, readdirSync, statSync } from "node:fs";

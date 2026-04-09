@@ -8,17 +8,24 @@ import { startDaemon } from "../server/index.js";
 import { loadEnvFiles, analyzeEnv } from "../core/env.js";
 import { analyzeHealth } from "../core/health.js";
 import { generateSuggestions, type Suggestion } from "../core/suggest.js";
+import { loadConfig } from "../core/config.js";
+import { checkBoundaries } from "../core/boundaries.js";
 import { startExplorer } from "./explore.js";
 import { registerDiffCommand } from "./diff.js";
 import { registerImpactCommand } from "./impact.js";
 import { registerHistoryCommand } from "./history.js";
+import { analyzeHotspots, type HotspotRisk } from "../core/hotspots.js";
 
 const program = new Command();
+
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const { version } = require("../../package.json");
 
 program
   .name("impulse")
   .description("Understand your project. Know what breaks before it breaks.")
-  .version("0.1.0");
+  .version(version);
 
 function printWarnings(): void {
   const warnings = getParseWarnings();
@@ -54,9 +61,10 @@ program
       return;
     }
 
-    console.log(`\n  Impulse — scanning ${rootDir}\n`);
+    process.stdout.write(`\n  Impulse — scanning ${rootDir}...\r`);
 
     const { graph, stats } = await analyzeProject(rootDir);
+    process.stdout.write(`\x1b[K`);
 
     console.log(`  Files scanned:  ${stats.filesScanned}`);
     if (stats.filesFailed > 0) {
@@ -94,6 +102,7 @@ program
     }
 
     console.log();
+    console.log(`  \x1b[2mTry: impulse health .  ·  impulse visualize .  ·  impulse impact <file> .\x1b[0m\n`);
   });
 
 registerImpactCommand(program);
@@ -303,15 +312,22 @@ program
   .option("--json", "Output as JSON")
   .action(async (dir: string, opts: { json?: boolean }) => {
     const rootDir = resolve(dir);
-    const { graph, stats } = await analyzeProject(rootDir);
-    const report = analyzeHealth(graph);
+
+    if (!opts.json) process.stdout.write(`\n  \x1b[2mAnalyzing architecture...\x1b[0m\r`);
+
+    const [{ graph, stats }, config] = await Promise.all([
+      analyzeProject(rootDir),
+      loadConfig(rootDir),
+    ]);
+    const report = analyzeHealth(graph, config.boundaries);
 
     if (opts.json) {
       console.log(JSON.stringify({ ...report, analysisMs: stats.durationMs, filesAnalyzed: stats.filesScanned }, null, 2));
       return;
     }
 
-    console.log(`\n  Impulse — Architecture Health Report`);
+    process.stdout.write(`\x1b[K`);
+    console.log(`  Impulse — Architecture Health Report`);
     console.log(`  ${stats.filesScanned} files analyzed in ${stats.durationMs}ms\n`);
 
     const gradeColors: Record<string, string> = {
@@ -331,6 +347,7 @@ program
     if (p.deepChains > 0) penaltyLines.push(`    Deep chains:       -${p.deepChains}`);
     if (p.orphans > 0) penaltyLines.push(`    Orphans:           -${p.orphans}`);
     if (p.hubConcentration > 0) penaltyLines.push(`    Hub concentration: -${p.hubConcentration}`);
+    if (p.stabilityViolations > 0) penaltyLines.push(`    SDP violations:    -${p.stabilityViolations}`);
     if (penaltyLines.length > 0) {
       console.log("  Penalties:");
       for (const line of penaltyLines) console.log(line);
@@ -382,7 +399,225 @@ program
       }
     }
 
+    if (report.stability && report.stability.modules.length > 0) {
+      const cyan = "\x1b[36m";
+      const green = "\x1b[32m";
+      const red = "\x1b[31m";
+      const barLen = 20;
+
+      console.log(`\n  Module Stability ${dim}(Stable Dependencies Principle)${reset}\n`);
+
+      const maxNameLen = Math.max(...report.stability.modules.map((m) => m.name.length));
+
+      for (const m of report.stability.modules) {
+        const stable = Math.round((1 - m.instability) * barLen);
+        const bar = "█".repeat(stable) + "░".repeat(barLen - stable);
+        const name = m.name.padEnd(maxNameLen);
+        const label = m.instability === 0 ? `${dim}(maximally stable)${reset}`
+          : m.instability === 1 ? `${dim}(maximally unstable)${reset}` : "";
+        console.log(`    ${cyan}${name}${reset}  ${bar}  I=${m.instability.toFixed(2)}  ${label}`);
+      }
+
+      if (report.stability.violations.length > 0) {
+        console.log(`\n  ${red}⚠ ${report.stability.violations.length} stability violation(s):${reset}\n`);
+        for (const v of report.stability.violations) {
+          console.log(`    ${v.from} ${dim}(I=${v.fromInstability.toFixed(2)})${reset} → ${v.to} ${dim}(I=${v.toInstability.toFixed(2)})${reset}`);
+          console.log(`      ${dim}Stable module depends on less stable module${reset}`);
+        }
+      } else {
+        console.log(`\n  ${green}✓ Dependencies flow toward stability.${reset}`);
+      }
+    }
+
     console.log();
+    console.log(`  \x1b[2mTry: impulse suggest .  ·  impulse check .  ·  impulse visualize .\x1b[0m\n`);
+  });
+
+program
+  .command("init")
+  .description("Auto-detect project structure and create .impulserc.json")
+  .argument("[dir]", "Project root directory", ".")
+  .action(async (dir: string) => {
+    const rootDir = resolve(dir);
+    const { writeFile, access } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+
+    const configPath = join(rootDir, ".impulserc.json");
+    try {
+      await access(configPath);
+      console.log("\n  .impulserc.json already exists. Delete it first to re-init.\n");
+      return;
+    } catch {}
+
+    const dim = "\x1b[2m";
+    const reset = "\x1b[0m";
+    const cyan = "\x1b[36m";
+    const green = "\x1b[32m";
+    const bold = "\x1b[1m";
+
+    process.stdout.write(`\n  ${dim}Scanning project...${reset}`);
+    const { graph, stats } = await analyzeProject(rootDir);
+    process.stdout.write(`\r\x1b[K`);
+
+    console.log(`  ${bold}Impulse Init${reset}  ${dim}(${stats.filesScanned} files found)${reset}\n`);
+
+    const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
+    const dirCounts = new Map<string, number>();
+
+    for (const node of fileNodes) {
+      const lastSlash = node.filePath.lastIndexOf("/");
+      if (lastSlash <= 0) continue;
+      const dir = node.filePath.slice(0, lastSlash);
+      const parts = dir.split("/");
+      const groupDir = parts.length >= 2 ? parts.slice(0, 2).join("/") : parts[0];
+      dirCounts.set(groupDir, (dirCounts.get(groupDir) ?? 0) + 1);
+    }
+
+    const significantDirs = [...dirCounts.entries()]
+      .filter(([, count]) => count >= 2)
+      .sort((a, b) => b[1] - a[1]);
+
+    if (significantDirs.length === 0) {
+      console.log("  No clear directory structure detected.");
+      console.log("  Create .impulserc.json manually.\n");
+      return;
+    }
+
+    const boundaries: Record<string, { path: string; allow: string[] }> = {};
+    const dirToName = new Map<string, string>();
+
+    for (const [dir] of significantDirs) {
+      const name = dir.split("/").pop()!
+        .replace(/[^a-zA-Z0-9-]/g, "-")
+        .toLowerCase();
+      dirToName.set(dir, name);
+      boundaries[name] = { path: `${dir}/**`, allow: [] };
+    }
+
+    const edges = graph.allEdges().filter(
+      (e) => e.kind === "imports" && !e.to.startsWith("external:"),
+    );
+
+    const allowSets = new Map<string, Set<string>>();
+    for (const [, name] of dirToName) allowSets.set(name, new Set());
+
+    for (const edge of edges) {
+      const fromPath = edge.from.replace("file:", "");
+      const toPath = edge.to.replace("file:", "");
+
+      let fromBoundary: string | undefined;
+      let toBoundary: string | undefined;
+
+      for (const [dir, name] of dirToName) {
+        if (fromPath.startsWith(dir + "/") || fromPath.startsWith(dir)) fromBoundary = name;
+        if (toPath.startsWith(dir + "/") || toPath.startsWith(dir)) toBoundary = name;
+      }
+
+      if (fromBoundary && toBoundary && fromBoundary !== toBoundary) {
+        allowSets.get(fromBoundary)!.add(toBoundary);
+      }
+    }
+
+    for (const [name, allowed] of allowSets) {
+      boundaries[name].allow = [...allowed].sort();
+    }
+
+    const config = { boundaries, thresholds: { health: 70 } };
+    await writeFile(configPath, JSON.stringify(config, null, 2) + "\n");
+
+    console.log(`  Detected ${significantDirs.length} boundaries:\n`);
+    for (const [name, rule] of Object.entries(boundaries)) {
+      const deps = rule.allow.length > 0
+        ? `${dim}→ ${rule.allow.join(", ")}${reset}`
+        : `${green}(no cross-boundary deps)${reset}`;
+      console.log(`    ${cyan}${name}${reset}  ${dim}${rule.path}${reset}  ${deps}`);
+    }
+
+    console.log(`\n  ${green}Created .impulserc.json${reset}`);
+    console.log(`  ${dim}Run${reset} ${bold}impulse check .${reset} ${dim}to validate boundaries${reset}\n`);
+  });
+
+program
+  .command("check")
+  .description("Validate architecture boundaries defined in .impulserc.json")
+  .argument("[dir]", "Project root directory", ".")
+  .option("--json", "Output as JSON")
+  .option("--init", "Create a starter .impulserc.json")
+  .action(async (dir: string, opts: { json?: boolean; init?: boolean }) => {
+    const rootDir = resolve(dir);
+
+    if (opts.init) {
+      const { writeFile } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      const starter = JSON.stringify({
+        boundaries: {
+          core: { path: "src/core/**", allow: [] },
+          cli: { path: "src/cli/**", allow: ["core"] },
+          server: { path: "src/server/**", allow: ["core"] },
+        },
+        thresholds: { health: 70 },
+      }, null, 2) + "\n";
+      await writeFile(join(rootDir, ".impulserc.json"), starter);
+      console.log("\n  Created .impulserc.json with starter boundaries.\n");
+      return;
+    }
+
+    const config = await loadConfig(rootDir);
+
+    if (!config.boundaries || Object.keys(config.boundaries).length === 0) {
+      console.log("\n  No boundaries defined. Create .impulserc.json:");
+      console.log("    impulse check . --init\n");
+      return;
+    }
+
+    const { graph, stats } = await analyzeProject(rootDir);
+    const report = checkBoundaries(graph, config.boundaries);
+
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
+
+    const dim = "\x1b[2m";
+    const reset = "\x1b[0m";
+    const red = "\x1b[31m";
+    const green = "\x1b[32m";
+    const cyan = "\x1b[36m";
+    const yellow = "\x1b[33m";
+
+    console.log(`\n  ${cyan}Impulse — Boundary Check${reset}`);
+    console.log(`  ${stats.filesScanned} files analyzed in ${stats.durationMs}ms\n`);
+
+    console.log("  Boundaries:");
+    for (const bs of report.boundaryStats) {
+      const status = bs.violations > 0
+        ? `${red}${bs.violations} violation(s)${reset}`
+        : `${green}clean${reset}`;
+      console.log(`    ${bs.name}  ${dim}(${bs.path})${reset}  ${bs.files} files  ${status}`);
+      console.log(`      ${dim}${bs.internalEdges} internal, ${bs.externalEdges} cross-boundary imports${reset}`);
+    }
+
+    if (report.unassigned.length > 0) {
+      console.log(`\n  ${yellow}Unassigned files (${report.unassigned.length}):${reset}`);
+      for (const f of report.unassigned.slice(0, 10)) {
+        console.log(`    ${dim}${f}${reset}`);
+      }
+      if (report.unassigned.length > 10) {
+        console.log(`    ${dim}...and ${report.unassigned.length - 10} more${reset}`);
+      }
+    }
+
+    if (report.violations.length > 0) {
+      console.log(`\n  ${red}✗ ${report.violations.length} violation(s):${reset}\n`);
+      for (const v of report.violations) {
+        console.log(`    ${v.from}  →  ${v.to}`);
+        console.log(`      ${dim}${v.fromBoundary} cannot import from ${v.toBoundary}${reset}`);
+      }
+      console.log();
+      process.exitCode = 1;
+    } else {
+      console.log(`\n  ${green}✓ All boundaries respected.${reset}\n`);
+    }
   });
 
 registerDiffCommand(program);
@@ -480,6 +715,77 @@ function printSuggestion(idx: number, s: Suggestion): void {
     console.log();
   }
 }
+
+program
+  .command("hotspots")
+  .description("Find high-risk files — change frequently AND affect many files")
+  .argument("[dir]", "Project root directory", ".")
+  .option("-n, --limit <n>", "Number of hotspots to show", "15")
+  .option("--commits <n>", "Number of git commits to analyze", "200")
+  .option("--json", "Output as JSON")
+  .action(async (dir: string, opts: { limit: string; commits: string; json?: boolean }) => {
+    const rootDir = resolve(dir);
+    const limit = parseInt(opts.limit, 10);
+    const maxCommits = parseInt(opts.commits, 10);
+
+    if (!opts.json) process.stdout.write(`\n  \x1b[2mAnalyzing hotspots...\x1b[0m\r`);
+
+    const { graph, stats } = await analyzeProject(rootDir);
+    const report = analyzeHotspots(graph, rootDir, maxCommits);
+
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
+
+    process.stdout.write(`\x1b[K`);
+    const dim = "\x1b[2m";
+    const reset = "\x1b[0m";
+    const bold = "\x1b[1m";
+
+    console.log(`  ${bold}Impulse — Hotspot Analysis${reset}`);
+    console.log(`  ${stats.filesScanned} files, ${report.commitsAnalyzed} commits analyzed in ${stats.durationMs}ms\n`);
+
+    if (report.hotspots.length === 0) {
+      console.log("  No hotspots found (no git history or no impactful changes).\n");
+      return;
+    }
+
+    const riskColors: Record<HotspotRisk, string> = {
+      critical: "\x1b[31m", high: "\x1b[33m", medium: "\x1b[36m", low: "\x1b[2m",
+    };
+    const barLen = 20;
+    const shown = report.hotspots.slice(0, limit);
+    const maxScore = shown[0]?.score ?? 1;
+
+    for (const h of shown) {
+      const color = riskColors[h.risk];
+      const filled = Math.max(1, Math.round((h.score / Math.max(maxScore, 1)) * barLen));
+      const bar = "█".repeat(filled) + "░".repeat(barLen - filled);
+      const label = h.risk.toUpperCase().padEnd(8);
+      console.log(`  ${color}${bar}${reset}  ${bold}${h.file}${reset}`);
+      console.log(`  ${dim}${h.changes} changes · ${h.affected} affected · score ${h.score} · ${color}${label}${reset}`);
+      console.log();
+    }
+
+    const byRisk = (r: HotspotRisk) => report.hotspots.filter((h) => h.risk === r).length;
+    const critical = byRisk("critical");
+    const high = byRisk("high");
+    const medium = byRisk("medium");
+
+    const parts: string[] = [];
+    if (critical > 0) parts.push(`\x1b[31m${critical} critical${reset}`);
+    if (high > 0) parts.push(`\x1b[33m${high} high${reset}`);
+    if (medium > 0) parts.push(`\x1b[36m${medium} medium${reset}`);
+    if (parts.length > 0) {
+      console.log(`  ${parts.join("  ·  ")}`);
+    }
+
+    if (report.hotspots.length > limit) {
+      console.log(`  ${dim}...and ${report.hotspots.length - limit} more (use --limit to show all)${reset}`);
+    }
+    console.log();
+  });
 
 program
   .command("exports")
@@ -600,4 +906,83 @@ program
     await import("../ci/index.js");
   });
 
-program.parse();
+if (process.argv.length <= 2) {
+  runDashboard().catch((err) => {
+    console.error(err.message);
+    process.exit(1);
+  });
+} else {
+  program.parse();
+}
+
+async function runDashboard(): Promise<void> {
+  const rootDir = resolve(".");
+  const dim = "\x1b[2m";
+  const reset = "\x1b[0m";
+  const cyan = "\x1b[36m";
+  const green = "\x1b[32m";
+  const yellow = "\x1b[33m";
+  const red = "\x1b[31m";
+  const bold = "\x1b[1m";
+
+  process.stdout.write(`\n  ${dim}Scanning...${reset}`);
+
+  const { graph, stats } = await analyzeProject(rootDir);
+  const health = analyzeHealth(graph);
+
+  process.stdout.write(`\r\x1b[K`);
+
+  const gradeColor = health.score >= 80 ? green : health.score >= 60 ? yellow : red;
+  const langSet = new Set<string>();
+  for (const node of graph.allNodes()) {
+    if (node.kind !== "file") continue;
+    const ext = node.filePath.slice(node.filePath.lastIndexOf("."));
+    if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) langSet.add("TypeScript");
+    else if (ext === ".py") langSet.add("Python");
+    else if (ext === ".go") langSet.add("Go");
+    else if (ext === ".rs") langSet.add("Rust");
+    else if (ext === ".cs") langSet.add("C#");
+  }
+  const langs = [...langSet].join(" + ") || "unknown";
+
+  console.log(`  ${bold}I M P U L S E${reset}\n`);
+  console.log(`  ${stats.filesScanned} files  ${dim}·${reset}  ${langs}  ${dim}·${reset}  ${gradeColor}${health.score}/100 (${health.grade})${reset}  ${dim}·${reset}  ${stats.durationMs}ms`);
+
+  const issues: string[] = [];
+  if (health.cycles.length > 0) issues.push(`${health.cycles.length} cycle(s)`);
+  if (health.godFiles.length > 0) issues.push(`${health.godFiles.length} god file(s)`);
+  if (health.orphans.length > 0) issues.push(`${health.orphans.length} orphan(s)`);
+
+  if (issues.length > 0) {
+    console.log(`  ${yellow}${issues.join(", ")}${reset}`);
+  } else {
+    console.log(`  ${green}No structural issues${reset}`);
+  }
+
+  const topFiles = graph
+    .allNodes()
+    .filter((n) => n.kind === "file")
+    .map((n) => ({
+      path: n.filePath,
+      deps: graph.getDependents(n.id).filter((e) => e.kind === "imports").length,
+    }))
+    .sort((a, b) => b.deps - a.deps)
+    .slice(0, 3)
+    .filter((f) => f.deps > 0);
+
+  if (topFiles.length > 0) {
+    console.log(`\n  ${dim}Most depended on:${reset}`);
+    for (const f of topFiles) {
+      console.log(`    ${cyan}${f.path}${reset}  ${dim}← ${f.deps} files${reset}`);
+    }
+  }
+
+  console.log(`\n  ${dim}Try:${reset}`);
+  if (topFiles.length > 0) {
+    console.log(`    ${bold}impulse impact ${topFiles[0].path} .${reset}   ${dim}what breaks if you change this?${reset}`);
+  }
+  console.log(`    ${bold}impulse health .${reset}              ${dim}full architecture report${reset}`);
+  console.log(`    ${bold}impulse visualize .${reset}           ${dim}interactive graph in browser${reset}`);
+  console.log(`    ${bold}impulse suggest .${reset}             ${dim}refactoring suggestions${reset}`);
+  console.log();
+}
