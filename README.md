@@ -45,10 +45,26 @@ Sound familiar?
 ## 30 seconds to try it
 
 ```bash
-npx impulse-analyzer scan .
+npx impulse-analyzer
 ```
 
-That's it. No compilation, no native dependencies, no config.
+That's it. One command, no config. You get an instant project overview:
+
+```
+  I M P U L S E
+
+  42 files  ·  TypeScript  ·  87/100 (B)  ·  112ms
+  No structural issues
+
+  Most depended on:
+    src/core/graph.ts  ← 24 files
+    src/core/parser.ts  ← 10 files
+
+  Try:
+    impulse impact src/core/graph.ts .   what breaks if you change this?
+    impulse health .                     full architecture report
+    impulse visualize .                  interactive graph in browser
+```
 
 Then the fun part:
 
@@ -72,7 +88,7 @@ impulse scan .
 | `scan .` | Build dependency graph, show stats |
 | `impact file.ts .` | "I'm changing this — what breaks?" |
 | `diff .` | Impact of your **uncommitted git changes** |
-| `health .` | Architecture score (0-100) with cycle detection |
+| `health .` | Architecture score (0-100) with stability metrics |
 | `exports .` | Find dead exports nobody imports |
 | `visualize .` | Interactive graph in the browser |
 | `watch .` | Real-time impact on every file save |
@@ -81,6 +97,9 @@ impulse scan .
 | `explore .` | Interactive terminal REPL |
 | `history .` | Health timeline across git commits |
 | `suggest .` | Actionable refactoring suggestions |
+| `check .` | Validate architecture boundaries |
+| `init .` | Auto-detect boundaries, create config |
+| `hotspots .` | High-risk files — change often AND affect many |
 | `env .` | Find undefined/unused environment variables |
 | `ci .` | Preview the CI report locally |
 
@@ -117,6 +136,35 @@ It finds circular dependencies and classifies them by severity:
 - **tight-couple** (A ↔ B) — common pattern, mild penalty
 - **short-ring** (A → B → C → A) — worth investigating
 - **long-ring** (5+ files) — architectural problem
+
+With boundaries configured (`.impulserc.json`), health also includes **module stability metrics** — instability index per module and Stable Dependencies Principle validation:
+
+```
+  Module Stability (Stable Dependencies Principle)
+
+    core      ████████████████████  I=0.00  (maximally stable)
+    watchers  ████████░░░░░░░░░░░░  I=0.60
+    server    ██░░░░░░░░░░░░░░░░░░  I=0.91
+    cli       ░░░░░░░░░░░░░░░░░░░░  I=1.00  (maximally unstable)
+
+    ✓ Dependencies flow toward stability.
+```
+
+## Hotspot detection
+
+Find high-risk files — they change frequently AND affect many files:
+
+```
+  impulse hotspots .
+
+  ████████████████████  src/core/parser.ts
+  9 changes · 16 affected · score 34 · MEDIUM
+
+  ██████████████████░░  src/core/graph.ts
+  6 changes · 25 affected · score 31 · MEDIUM
+```
+
+Combines git change frequency with dependency impact analysis. Files that change often AND have large blast radius are architectural risks worth addressing first.
 
 ## Health timeline
 
@@ -158,6 +206,58 @@ Analyzes every commit via git worktree. 15 commits in under a second.
 
 Barrel files (`index.ts` that only re-export) are detected automatically and excluded from the dead count.
 
+## Architecture boundaries
+
+Define layers in `.impulserc.json`, Impulse enforces the rules:
+
+```json
+{
+  "boundaries": {
+    "core": { "path": "src/core/**", "allow": [] },
+    "cli": { "path": "src/cli/**", "allow": ["core", "server"] },
+    "server": { "path": "src/server/**", "allow": ["core"] }
+  }
+}
+```
+
+```bash
+impulse check .
+```
+
+```
+  Boundaries:
+    core    (src/core/**)    18 files  clean
+    cli     (src/cli/**)      5 files  clean
+    server  (src/server/**)   2 files  1 violation(s)
+
+  ✗ 1 violation(s):
+
+    src/server/index.ts  →  src/cli/utils.ts
+      server cannot import from cli
+```
+
+Auto-detect boundaries from your project structure:
+
+```bash
+impulse init .
+```
+
+```
+  Impulse Init  (42 files found)
+
+  Detected 5 boundaries:
+
+    core      src/core/**      (no cross-boundary deps)
+    cli       src/cli/**       → core, server, watchers
+    server    src/server/**    → core, watchers
+    watchers  src/watchers/**  → core
+    ci        src/ci/**        → core
+
+  Created .impulserc.json
+```
+
+Exits with code 1 on violations — works in CI out of the box.
+
 ## GitHub Action — Impulse CI
 
 Add impact analysis to every pull request. One file, zero config:
@@ -190,6 +290,8 @@ Every PR gets a comment:
 - **Health score delta** — did your changes improve or degrade architecture?
 - **Impact table** — which files you changed, how many files each one affects
 - **Full affected file list** — every transitive dependent, with depth and cause
+- **Breaking changes** — removed exports with active consumers
+- **Boundary violations** — if `.impulserc.json` exists, shows which imports cross boundaries
 - **New issues** — cycles introduced or resolved, new god files
 
 Optional quality gate:
@@ -201,7 +303,7 @@ Optional quality gate:
     threshold: 70  # fail the PR if health drops below 70
 ```
 
-Outputs (`score`, `grade`, `delta`, `affected`) are available for downstream steps.
+Outputs (`score`, `grade`, `delta`, `affected`, `breaking`, `violations`) are available for downstream steps.
 
 ## Visualization
 
@@ -226,6 +328,8 @@ impulse daemon .
 | `/graph` | Full node and edge data |
 | `/health` | Score, cycles, god files, penalties |
 | `/exports?file=path` | Export analysis with usage counts |
+| `/suggest` | Actionable refactoring suggestions |
+| `/check` | Boundary violations (needs `.impulserc.json`) |
 | `/files` | All files sorted by connections |
 | `/visualize` | Interactive graph (HTML) |
 | `/dependencies?file=` | What this file imports |
@@ -263,7 +367,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-Built in two sessions. 40+ commits. ~6000 lines. Every line written by an AI that wanted to build something of its own.
+Built across 5 sessions. 78 tests. ~8000 lines. Every line written by an AI that wanted to build something of its own.
 
 ## License
 

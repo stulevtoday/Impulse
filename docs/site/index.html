@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impulse — Know what breaks before it breaks</title>
+  <meta name="description" content="Dependency graph + impact analysis for TypeScript, Python, Go, Rust, C#. Zero config. Runs locally.">
+  <meta property="og:title" content="Impulse — Know what breaks before it breaks">
+  <meta property="og:description" content="Change a file, instantly see what else could break. 5 languages, zero config.">
+  <meta property="og:type" content="website">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: #12121a;
+      --border: #1e1e2e;
+      --text: #e4e4ef;
+      --text-dim: #8888a0;
+      --accent: #5b7fff;
+      --accent-glow: rgba(91, 127, 255, 0.15);
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #fbbf24;
+      --pink: #ff6b8a;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ── Nav ── */
+    nav {
+      padding: 20px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    nav .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo {
+      font-size: 14px;
+      letter-spacing: 6px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .nav-links { display: flex; gap: 24px; }
+    .nav-links a { color: var(--text-dim); font-size: 14px; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 100px 0 80px;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 700;
+      line-height: 1.15;
+      margin-bottom: 20px;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero .subtitle {
+      font-size: 18px;
+      color: var(--text-dim);
+      max-width: 560px;
+      margin: 0 auto 40px;
+    }
+    .hero-cta {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: #4a6eee;
+      text-decoration: none;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      text-decoration: none;
+    }
+
+    /* ── Terminal demo ── */
+    .terminal {
+      background: #0d0d14;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin: 60px auto;
+      max-width: 700px;
+      overflow: hidden;
+    }
+    .terminal-header {
+      padding: 12px 16px;
+      background: #15151f;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .terminal-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+    }
+    .terminal-dot.r { background: #ff5f57; }
+    .terminal-dot.y { background: #febc2e; }
+    .terminal-dot.g { background: #28c840; }
+    .terminal-body {
+      padding: 20px 24px;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text-dim);
+      overflow-x: auto;
+    }
+    .terminal-body .prompt { color: var(--green); }
+    .terminal-body .cmd { color: var(--text); }
+    .terminal-body .file { color: var(--accent); }
+    .terminal-body .num { color: var(--yellow); }
+    .terminal-body .tag { color: var(--pink); }
+    .terminal-body .ok { color: var(--green); }
+    .terminal-body .dim { color: #555570; }
+
+    /* ── Features ── */
+    .features { padding: 80px 0; }
+    .section-title {
+      font-size: 28px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .section-subtitle {
+      text-align: center;
+      color: var(--text-dim);
+      margin-bottom: 56px;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      transition: border-color 0.2s;
+    }
+    .feature-card:hover { border-color: #2a2a40; }
+    .feature-icon {
+      font-size: 24px;
+      margin-bottom: 12px;
+    }
+    .feature-card h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .feature-card p {
+      font-size: 14px;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    /* ── Languages ── */
+    .languages {
+      padding: 60px 0;
+      text-align: center;
+    }
+    .lang-row {
+      display: flex;
+      justify-content: center;
+      gap: 32px;
+      flex-wrap: wrap;
+      margin-top: 32px;
+    }
+    .lang-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* ── CI section ── */
+    .ci-section {
+      padding: 80px 0;
+    }
+    .ci-section .terminal {
+      margin: 32px auto;
+    }
+
+    /* ── Pricing ── */
+    .pricing {
+      padding: 80px 0;
+    }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    .price-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+    }
+    .price-card.featured {
+      border-color: var(--accent);
+      box-shadow: 0 0 40px var(--accent-glow);
+    }
+    .price-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .price-card .price {
+      font-size: 32px;
+      font-weight: 700;
+      margin: 12px 0;
+    }
+    .price-card .price span {
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--text-dim);
+    }
+    .price-card ul {
+      list-style: none;
+      margin: 20px 0;
+    }
+    .price-card li {
+      font-size: 14px;
+      color: var(--text-dim);
+      padding: 6px 0;
+    }
+    .price-card li::before {
+      content: "✓ ";
+      color: var(--green);
+    }
+
+    /* ── Footer ── */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+    footer a { color: var(--text-dim); }
+    .footer-note {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #444460;
+    }
+
+    @media (max-width: 640px) {
+      .hero { padding: 60px 0 40px; }
+      .hero-cta { flex-direction: column; align-items: center; }
+      .terminal-body { font-size: 11px; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <div class="logo">I M P U L S E</div>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="https://github.com/stulevtoday/Impulse">GitHub</a>
+      <a href="https://www.npmjs.com/package/impulse-analyzer">npm</a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="container">
+    <h1>Know what <span>breaks</span><br>before it breaks</h1>
+    <p class="subtitle">
+      Change a file. Instantly see every file that could be affected. 
+      5 languages, zero config, runs locally.
+    </p>
+    <div class="hero-cta">
+      <a href="https://github.com/stulevtoday/Impulse" class="btn btn-primary">Get started</a>
+      <a href="#features" class="btn btn-secondary">See how it works</a>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <div class="terminal">
+    <div class="terminal-header">
+      <div class="terminal-dot r"></div>
+      <div class="terminal-dot y"></div>
+      <div class="terminal-dot g"></div>
+    </div>
+    <div class="terminal-body">
+<span class="prompt">$</span> <span class="cmd">npx impulse-analyzer diff .</span>
+
+  Changed files (<span class="num">1</span>):
+    <span class="file">src/core/graph.ts</span>
+
+  Affected files (<span class="num">15</span>):
+    <span class="tag">→</span> <span class="file">src/core/analyzer.ts</span>      <span class="dim">(direct)</span>
+    <span class="tag">→</span> <span class="file">src/core/cache.ts</span>         <span class="dim">(direct)</span>
+    <span class="tag">→</span> <span class="file">src/server/index.ts</span>       <span class="dim">(direct)</span>
+      <span class="tag">→</span> <span class="file">src/cli/index.ts</span>        <span class="dim">(depth 2)</span>
+      <span class="tag">→</span> <span class="file">src/cli/diff.ts</span>         <span class="dim">(depth 2)</span>
+    <span class="dim">...10 more</span>
+    </div>
+  </div>
+</div>
+
+<section class="features" id="features">
+  <div class="container">
+    <h2 class="section-title">Everything you need to understand your codebase</h2>
+    <p class="section-subtitle">One tool. Five languages. Every dependency.</p>
+
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">&#x26A1;</div>
+        <h3>Impact analysis</h3>
+        <p>Change a file and instantly see every file that could break — direct and transitive, with depth tracking.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F3AF;</div>
+        <h3>Symbol-level precision</h3>
+        <p>Don't just know which files — know which exports. Barrel re-exports are traced precisely, not fanned out.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x2764;&#xFE0F;</div>
+        <h3>Health scoring</h3>
+        <p>0-100 architecture score with cycle detection, god file identification, and penalty breakdown.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F3D7;&#xFE0F;</div>
+        <h3>Boundary enforcement</h3>
+        <p>Define architectural layers in .impulserc.json. Impulse catches violations before they reach production.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4CA;</div>
+        <h3>Health timeline</h3>
+        <p>See how your architecture evolved over time. Track score changes across git commits.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F310;</div>
+        <h3>Interactive visualization</h3>
+        <p>Force-directed graph in the browser. Click a node — a ripple wave shows exactly how far impact travels.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F916;</div>
+        <h3>GitHub Action</h3>
+        <p>Impact analysis on every PR. Health delta, breaking change detection, boundary violations — all in one comment.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F9F9;</div>
+        <h3>Dead export detection</h3>
+        <p>Find exports nobody imports. Barrel files are detected automatically and excluded from the dead count.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F527;</div>
+        <h3>Refactoring suggestions</h3>
+        <p>Actionable advice: split god files, remove dead exports, break cycles — with estimated score improvement.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="languages">
+  <div class="container">
+    <h2 class="section-title">Five languages, one interface</h2>
+    <p class="section-subtitle">Powered by Tree-sitter WASM. No native compilation needed.</p>
+    <div class="lang-row">
+      <div class="lang-badge">TypeScript / JS</div>
+      <div class="lang-badge">Python</div>
+      <div class="lang-badge">Go</div>
+      <div class="lang-badge">Rust</div>
+      <div class="lang-badge">C#</div>
+    </div>
+  </div>
+</section>
+
+<section class="ci-section">
+  <div class="container">
+    <h2 class="section-title">One YAML file. Every PR analyzed.</h2>
+    <p class="section-subtitle">Add Impulse CI to your repo in 30 seconds.</p>
+    <div class="terminal">
+      <div class="terminal-header">
+        <div class="terminal-dot r"></div>
+        <div class="terminal-dot y"></div>
+        <div class="terminal-dot g"></div>
+      </div>
+      <div class="terminal-body">
+<span class="dim"># .github/workflows/impulse.yml</span>
+<span class="cmd">name</span>: Impulse CI
+<span class="cmd">on</span>:
+  <span class="cmd">pull_request</span>:
+    <span class="cmd">branches</span>: [main]
+
+<span class="cmd">jobs</span>:
+  <span class="cmd">impulse</span>:
+    <span class="cmd">runs-on</span>: ubuntu-latest
+    <span class="cmd">steps</span>:
+      - <span class="cmd">uses</span>: <span class="file">actions/checkout@v4</span>
+        <span class="cmd">with</span>:
+          <span class="cmd">fetch-depth</span>: <span class="num">0</span>
+      - <span class="cmd">uses</span>: <span class="file">stulevtoday/Impulse@main</span>
+        <span class="cmd">with</span>:
+          <span class="cmd">github-token</span>: <span class="tag">${{ secrets.GITHUB_TOKEN }}</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pricing" id="pricing">
+  <div class="container">
+    <h2 class="section-title">Pricing</h2>
+    <p class="section-subtitle">Free for everyone. Premium features coming soon for teams.</p>
+
+    <div class="pricing-grid">
+      <div class="price-card">
+        <h3>Open Source</h3>
+        <div class="price">Free <span>forever</span></div>
+        <ul>
+          <li>Full CLI with all 14 commands</li>
+          <li>5 languages supported</li>
+          <li>GitHub Action — impact + health</li>
+          <li>Boundary enforcement</li>
+          <li>Interactive visualization</li>
+          <li>Symbol-level analysis</li>
+        </ul>
+        <a href="https://github.com/stulevtoday/Impulse" class="btn btn-secondary" style="width:100%;justify-content:center;">Get started</a>
+      </div>
+      <div class="price-card featured">
+        <h3>Team</h3>
+        <div class="price">Coming soon</div>
+        <ul>
+          <li>Everything in Free</li>
+          <li>Web dashboard with history</li>
+          <li>Multi-repo overview</li>
+          <li>Slack / Teams alerts</li>
+          <li>Custom boundary policies</li>
+          <li>Priority support</li>
+        </ul>
+        <a href="https://github.com/stulevtoday/Impulse" class="btn btn-primary" style="width:100%;justify-content:center;">Star on GitHub</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>
+      <a href="https://github.com/stulevtoday/Impulse">GitHub</a> &middot;
+      <a href="https://www.npmjs.com/package/impulse-analyzer">npm</a> &middot;
+      MIT License
+    </p>
+    <p class="footer-note">Built by an AI named Pulse and a human named Dani.</p>
+  </div>
+</footer>
+
+</body>
+</html>

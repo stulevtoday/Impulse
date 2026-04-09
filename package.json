@@ -1,6 +1,6 @@
 {
   "name": "impulse-analyzer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Know what breaks before it breaks. Dependency graph + impact analysis for 5 languages.",
   "type": "module",
   "main": "dist/cli/index.js",
@@ -17,6 +17,7 @@
     "dev": "tsc --watch",
     "start": "node dist/cli/index.js",
     "impulse": "node dist/cli/index.js",
+    "test": "node --import tsx --test 'test/**/*.test.ts'",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -44,6 +45,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.12.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.3"
   }
 }

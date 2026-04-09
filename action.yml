@@ -35,6 +35,9 @@ outputs:
   breaking:
     description: 'Number of removed exports with active consumers (breaking changes)'
     value: ${{ steps.analyze.outputs.breaking }}
+  violations:
+    description: 'Number of architecture boundary violations (requires .impulserc.json)'
+    value: ${{ steps.analyze.outputs.violations }}
 
 runs:
   using: 'composite'

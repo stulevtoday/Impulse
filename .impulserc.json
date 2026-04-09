@@ -1,0 +1,12 @@
+{
+  "boundaries": {
+    "core": { "path": "src/core/**", "allow": [] },
+    "cli": { "path": "src/cli/**", "allow": ["core", "server", "watchers", "ci"] },
+    "server": { "path": "src/server/**", "allow": ["core", "watchers"] },
+    "watchers": { "path": "src/watchers/**", "allow": ["core"] },
+    "ci": { "path": "src/ci/**", "allow": ["core"] }
+  },
+  "thresholds": {
+    "health": 70
+  }
+}
