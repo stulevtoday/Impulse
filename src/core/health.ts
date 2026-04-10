@@ -1,6 +1,7 @@
 import type { DependencyGraph, GraphNode } from "./graph.js";
 import type { BoundaryRule } from "./config-types.js";
 import { analyzeStability, type StabilityReport } from "./stability.js";
+import type { ComplexityReport } from "./complexity.js";
 
 export type CycleSeverity = "tight-couple" | "short-ring" | "long-ring";
 
@@ -30,6 +31,7 @@ export interface Penalties {
   orphans: number;
   hubConcentration: number;
   stabilityViolations: number;
+  complexity: number;
 }
 
 export interface HealthReport {
@@ -57,6 +59,7 @@ export interface HealthReport {
 export function analyzeHealth(
   graph: DependencyGraph,
   boundaries?: Record<string, BoundaryRule>,
+  complexity?: ComplexityReport,
 ): HealthReport {
   const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
   const importEdges = graph.allEdges().filter((e) => e.kind === "imports");
@@ -74,9 +77,9 @@ export function analyzeHealth(
     stability = analyzeStability(graph, boundaries);
   }
 
-  const { score, penalties } = computeScore(cycles, godFiles, deepestChains, orphans, stats, stability);
+  const { score, penalties } = computeScore(cycles, godFiles, deepestChains, orphans, stats, stability, complexity);
   const grade = scoreToGrade(score);
-  const summary = buildSummary(cycles, godFiles, deepestChains, orphans, stability);
+  const summary = buildSummary(cycles, godFiles, deepestChains, orphans, stability, complexity);
 
   return { score, grade, summary, cycles, godFiles, deepestChains, orphans, penalties, stability, stats };
 }
@@ -250,6 +253,7 @@ function computeScore(
   orphans: string[],
   stats: { totalFiles: number; maxImportedBy: number },
   stability?: StabilityReport,
+  complexity?: ComplexityReport,
 ): { score: number; penalties: Penalties } {
   const penalties: Penalties = {
     cycles: 0,
@@ -258,6 +262,7 @@ function computeScore(
     orphans: 0,
     hubConcentration: 0,
     stabilityViolations: 0,
+    complexity: 0,
   };
 
   let rawCyclePenalty = 0;
@@ -290,6 +295,15 @@ function computeScore(
     penalties.stabilityViolations = Math.min(stability.violations.length * 5, 15);
   }
 
+  if (complexity && complexity.totalFunctions > 0) {
+    const alarmingRatio = complexity.distribution.alarming / complexity.totalFunctions;
+    const complexRatio = (complexity.distribution.alarming + complexity.distribution.complex) / complexity.totalFunctions;
+    if (alarmingRatio > 0.15) penalties.complexity = 15;
+    else if (alarmingRatio > 0.05) penalties.complexity = 10;
+    else if (complexRatio > 0.3) penalties.complexity = 8;
+    else if (complexRatio > 0.15) penalties.complexity = 4;
+  }
+
   const total = Object.values(penalties).reduce((a, b) => a + b, 0);
   const score = Math.max(0, Math.min(100, 100 - total));
 
@@ -310,6 +324,7 @@ function buildSummary(
   deepChains: DepthAnalysis[],
   orphans: string[],
   stability?: StabilityReport,
+  complexity?: ComplexityReport,
 ): string {
   const issues: string[] = [];
 
@@ -329,6 +344,9 @@ function buildSummary(
   if (orphans.length > 0) issues.push(`${orphans.length} isolated file(s)`);
   if (stability && stability.violations.length > 0) {
     issues.push(`${stability.violations.length} stability violation(s)`);
+  }
+  if (complexity && complexity.distribution.alarming > 0) {
+    issues.push(`${complexity.distribution.alarming} alarming-complexity function(s)`);
   }
   if (issues.length === 0) return "No structural issues detected. Clean architecture.";
   return issues.join(", ");

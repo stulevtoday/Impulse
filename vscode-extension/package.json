@@ -54,6 +54,11 @@
           "type": "string",
           "default": "",
           "description": "Path to the impulse CLI binary (leave empty to use npx impulse-analyzer)"
+        },
+        "impulse.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline CodeLens annotations above exports (consumers, blast radius, dead exports)"
         }
       }
     }

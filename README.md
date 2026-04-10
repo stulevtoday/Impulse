@@ -109,6 +109,8 @@ impulse scan .
 | `hotspots .` | High-risk files — change often AND affect many |
 | `test .` | Which tests to run based on your changes |
 | `coupling .` | Find hidden coupling — co-change without imports |
+| `complexity .` | Cyclomatic + cognitive complexity per function across all files |
+| `risk .` | **Unified risk** — complexity × churn × impact × coupling in one view |
 | `focus file.ts .` | Deep X-ray of a single file |
 | `graph . --format mermaid` | Export dependency graph as **Mermaid**, DOT, or JSON |
 | `badge .` | Generate SVG health badge for your README |
@@ -240,6 +242,71 @@ If two files always change together but have no dependency — there's a shared 
 ```bash
 impulse coupling . --all          # include confirmed coupling too
 impulse coupling . --min-ratio 0.5  # stricter threshold
+```
+
+## Complexity analysis
+
+Cyclomatic and cognitive complexity for every function, across all 8 languages:
+
+```
+  impulse complexity .
+
+  Impulse — Complexity Analysis
+  84 files, 367 functions analyzed
+
+  ████████████████████  src/ci/index.ts → generateReport
+  317 lines · cyclomatic 58 · cognitive 144 · ALARMING
+
+  ████████░░░░░░░░░░░░  src/cli/dashboard.ts → runDashboard
+  112 lines · cyclomatic 30 · cognitive 56 · ALARMING
+
+  Distribution
+  simple    █████████████████        260 (71%)
+  moderate  ███                       53 (14%)
+  complex   ███                       41 (11%)
+  alarming  █                         13 (4%)
+```
+
+Filter by risk level or set a threshold:
+
+```bash
+impulse complexity . --risk alarming    # only show alarming functions
+impulse complexity . --threshold 15     # cognitive > 15
+impulse complexity . --json             # machine-readable output
+```
+
+## Risk analysis
+
+The killer question: **"Where should I focus right now?"** — answered by combining all four analysis dimensions into one prioritized list:
+
+```
+  impulse risk .
+
+  Impulse — Risk Analysis
+  94 files analyzed in 329ms
+
+  ██████████████████████  src/core/extractor.ts
+  risk 87/100 · CRITICAL
+  comp ▓▓▓▓▓ 100 │ chur ▓▓▓░░ 58 │ impa ▓▓░░░ 48 │ coup ▓▓▓▓▓ 100
+
+  █████████████████████░  src/core/graph.ts
+  risk 83/100 · CRITICAL
+  comp ▓▓▓▓▓ 100 │ chur ▓▓░░░ 33 │ impa ▓▓▓▓░ 84 │ coup ▓▓░░░ 33
+
+  Summary: 23 critical · 8 high · 13 medium · 50 low
+```
+
+Each file is scored across four dimensions:
+- **complexity** — cognitive complexity of the most complex function
+- **churn** — how frequently the file changes relative to the project
+- **impact** — blast radius if this file breaks
+- **coupling** — hidden coupling partners (co-change without imports)
+
+Files that are high on *multiple* dimensions are the real danger zones.
+
+```bash
+impulse risk . --risk critical   # only show critical files
+impulse risk . --json            # machine-readable output
 ```
 
 ## File focus
@@ -577,6 +644,8 @@ impulse daemon .
 | `/dependents?file=` | Who imports this file |
 | `/test-targets` | Tests to run based on uncommitted changes |
 | `/coupling` | Temporal coupling analysis |
+| `/complexity` | Cyclomatic + cognitive complexity per function |
+| `/risk` | Unified risk analysis (complexity × churn × impact × coupling) |
 | `/focus?file=path` | Deep analysis of a single file |
 | `/doctor` | Full diagnostic report |
 | `/safe-delete?file=` | Safe deletion analysis with verdict |

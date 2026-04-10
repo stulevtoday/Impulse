@@ -56,6 +56,25 @@ export interface HealthResult {
   };
 }
 
+export interface FocusExport {
+  name: string;
+  consumers: string[];
+  dead: boolean;
+}
+
+export interface FocusResult {
+  file: string;
+  exists: boolean;
+  imports: string[];
+  importedBy: string[];
+  exports: FocusExport[];
+  blastRadius: number;
+  impactByDepth: Record<number, number>;
+  testsCovering: string[];
+  gitChanges: number;
+  lastChanged: string | null;
+}
+
 export class DaemonClient {
   constructor(private port: number) {}
 
@@ -81,6 +100,10 @@ export class DaemonClient {
 
   async health(): Promise<HealthResult> {
     return this.get("/health");
+  }
+
+  async focus(file: string): Promise<FocusResult> {
+    return this.get(`/focus?file=${encodeURIComponent(file)}`);
   }
 
   async isRunning(): Promise<boolean> {

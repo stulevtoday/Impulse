@@ -30,6 +30,8 @@ import { registerDoctorCommand } from "./doctor.js";
 import { registerSafeDeleteCommand } from "./safe-delete.js";
 import { registerCompareCommand } from "./compare.js";
 import { registerTreeCommand } from "./tree.js";
+import { registerComplexityCommand } from "./complexity.js";
+import { registerRiskCommand } from "./risk.js";
 import { runDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -343,6 +345,8 @@ registerDoctorCommand(program);
 registerSafeDeleteCommand(program);
 registerCompareCommand(program);
 registerTreeCommand(program);
+registerComplexityCommand(program);
+registerRiskCommand(program);
 
 program
   .command("badge")

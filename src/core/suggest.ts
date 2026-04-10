@@ -1,5 +1,6 @@
 import type { DependencyGraph } from "./graph.js";
 import type { HealthReport } from "./health.js";
+import type { ComplexityReport, FunctionComplexity } from "./complexity.js";
 
 export interface ExportCluster {
   exports: string[];
@@ -28,10 +29,19 @@ export interface CycleBreakSuggestion {
   suggestedExtraction: string;
 }
 
+export interface SplitComplexFunctionSuggestion {
+  kind: "split-complex-function";
+  file: string;
+  functionName: string;
+  cognitive: number;
+  lineCount: number;
+}
+
 export type Suggestion =
   | GodFileSuggestion
   | DeadExportSuggestion
-  | CycleBreakSuggestion;
+  | CycleBreakSuggestion
+  | SplitComplexFunctionSuggestion;
 
 export interface SuggestReport {
   suggestions: Suggestion[];
@@ -41,6 +51,7 @@ export interface SuggestReport {
 export function generateSuggestions(
   graph: DependencyGraph,
   health: HealthReport,
+  complexity?: ComplexityReport,
 ): SuggestReport {
   const suggestions: Suggestion[] = [];
 
@@ -58,9 +69,26 @@ export function generateSuggestions(
     if (suggestion) suggestions.push(suggestion);
   }
 
+  if (complexity) {
+    suggestions.push(...findComplexFunctions(complexity));
+  }
+
   const improvement = estimateImprovement(suggestions, health);
 
   return { suggestions, estimatedScoreImprovement: improvement };
+}
+
+function findComplexFunctions(report: ComplexityReport): SplitComplexFunctionSuggestion[] {
+  return report.functions
+    .filter((f) => f.risk === "alarming")
+    .slice(0, 10)
+    .map((f) => ({
+      kind: "split-complex-function" as const,
+      file: f.filePath,
+      functionName: f.name,
+      cognitive: f.cognitive,
+      lineCount: f.lineCount,
+    }));
 }
 
 function analyzeGodFile(

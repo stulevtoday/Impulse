@@ -1,9 +1,11 @@
 import * as vscode from "vscode";
 import { DaemonClient } from "./daemon-client";
+import { ImpulseCodeLensProvider } from "./codelens-provider";
 import { spawn, type ChildProcess } from "child_process";
 import * as path from "path";
 
 let client: DaemonClient;
+let codeLensProvider: ImpulseCodeLensProvider;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let daemonProcess: ChildProcess | null = null;
@@ -13,6 +15,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const port = config.get<number>("daemonPort", 4096);
 
   client = new DaemonClient(port);
+  codeLensProvider = new ImpulseCodeLensProvider(client);
   outputChannel = vscode.window.createOutputChannel("Impulse");
 
   statusBarItem = vscode.window.createStatusBarItem(
@@ -22,7 +25,21 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBarItem.command = "impulse.showImpact";
   context.subscriptions.push(statusBarItem);
 
+  const codeLensSelector: vscode.DocumentSelector = [
+    { scheme: "file", language: "typescript" },
+    { scheme: "file", language: "typescriptreact" },
+    { scheme: "file", language: "javascript" },
+    { scheme: "file", language: "javascriptreact" },
+    { scheme: "file", language: "python" },
+    { scheme: "file", language: "go" },
+    { scheme: "file", language: "rust" },
+    { scheme: "file", language: "java" },
+    { scheme: "file", language: "kotlin" },
+    { scheme: "file", language: "php" },
+  ];
+
   context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(codeLensSelector, codeLensProvider),
     vscode.commands.registerCommand("impulse.showImpact", showImpact),
     vscode.commands.registerCommand("impulse.showDependencies", showDependencies),
     vscode.commands.registerCommand("impulse.showDependents", showDependents),
@@ -32,7 +49,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   if (config.get<boolean>("showImpactOnSave", true)) {
     context.subscriptions.push(
-      vscode.workspace.onDidSaveTextDocument(onFileSave),
+      vscode.workspace.onDidSaveTextDocument((doc) => {
+        onFileSave(doc);
+        codeLensProvider.refresh();
+      }),
     );
   }
 

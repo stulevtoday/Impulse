@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { resolve } from "node:path";
 import { analyzeProject } from "../core/analyzer.js";
 import { analyzeHealth } from "../core/health.js";
+import { analyzeComplexity } from "../core/complexity.js";
 import { generateSuggestions, type Suggestion } from "../core/suggest.js";
 
 function printSuggestion(idx: number, s: Suggestion): void {
@@ -44,6 +45,16 @@ function printSuggestion(idx: number, s: Suggestion): void {
     );
     console.log();
   }
+
+  if (s.kind === "split-complex-function") {
+    console.log(
+      `  \x1b[33m${idx}.\x1b[0m Split complex function: \x1b[1m${s.functionName}\x1b[0m in \x1b[1m${s.file}\x1b[0m`,
+    );
+    console.log(
+      `     \x1b[31mcognitive ${s.cognitive}\x1b[0m · ${s.lineCount} lines — extract helper functions to reduce nesting`,
+    );
+    console.log();
+  }
 }
 
 export function registerSuggestCommand(program: Command): void {
@@ -54,9 +65,12 @@ export function registerSuggestCommand(program: Command): void {
     .option("--json", "Output as JSON")
     .action(async (dir: string, opts: { json?: boolean }) => {
       const rootDir = resolve(dir);
-      const { graph, stats } = await analyzeProject(rootDir);
+      const [{ graph, stats }, complexity] = await Promise.all([
+        analyzeProject(rootDir),
+        analyzeComplexity(rootDir),
+      ]);
       const health = analyzeHealth(graph);
-      const report = generateSuggestions(graph, health);
+      const report = generateSuggestions(graph, health, complexity);
 
       if (opts.json) {
         console.log(JSON.stringify(report, null, 2));

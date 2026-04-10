@@ -336,314 +336,224 @@ function generateReport(
   config: CIConfig,
   boundaryReport: BoundaryReport | null,
 ): string {
-  const lines: string[] = [COMMENT_MARKER, ""];
+  return [
+    COMMENT_MARKER, "",
+    ...buildHeader(head, base, config),
+    ...buildIssueDiff(head, base),
+    ...buildBreakingSection(impact),
+    ...buildNewExportsSection(impact),
+    ...buildImpactSection(changedFiles, impact),
+    ...buildScoreBreakdown(head, base),
+    ...buildBoundarySection(boundaryReport),
+    ...buildStabilitySection(head),
+    ...buildFooter(head, base),
+  ].join("\n");
+}
 
-  // ── Header ──
+function buildHeader(head: BranchAnalysis, base: BranchAnalysis | null, config: CIConfig): string[] {
   const score = `**${head.health.score}**/100 (${head.health.grade})`;
+  if (!base) return [`## 🫀 Impulse — ${score}`, ""];
+
+  const delta = head.health.score - base.health.score;
+  if (delta === 0) return [`## 🫀 Impulse — ${score} · no change`, ""];
+
+  const emoji = delta > 0 ? "📈" : "📉";
+  const baseName = config.baseRef.replace(/^origin\//, "");
+  return [`## 🫀 Impulse — ${score} · ${emoji} **${deltaStr(delta)}** from \`${baseName}\``, ""];
+}
+
+function buildIssueDiff(head: BranchAnalysis, base: BranchAnalysis | null): string[] {
+  if (!base) return [];
+  const issues: string[] = [];
+
+  const baseCycleKeys = new Set(base.health.cycles.map((c) => c.cycle.join("→")));
+  const headCycleKeys = new Set(head.health.cycles.map((c) => c.cycle.join("→")));
+
+  for (const cycle of head.health.cycles) {
+    if (!baseCycleKeys.has(cycle.cycle.join("→"))) {
+      const label = cycle.severity === "tight-couple"
+        ? `\`${cycle.cycle[0]}\` ↔ \`${cycle.cycle[1]}\``
+        : cycle.cycle.map((f) => `\`${f}\``).join(" → ");
+      issues.push(`⚠️ New cycle: ${label} (${cycle.severity})`);
+    }
+  }
+  for (const cycle of base.health.cycles) {
+    if (!headCycleKeys.has(cycle.cycle.join("→"))) {
+      issues.push(`✅ Resolved cycle: \`${cycle.cycle[0]}\` ↔ \`${cycle.cycle[1]}\``);
+    }
+  }
+
+  const baseGodSet = new Set(base.health.godFiles.map((g) => g.file));
+  for (const god of head.health.godFiles) {
+    if (!baseGodSet.has(god.file)) {
+      issues.push(`⚠️ New god file: \`${god.file}\` (${god.totalConnections} connections)`);
+    }
+  }
+
+  return issues.length > 0 ? [...issues, ""] : [];
+}
+
+function buildBreakingSection(impact: ImpactSummary): string[] {
+  if (impact.breakingChanges.length === 0) return [];
+  const lines = [
+    `### ⚠️ Breaking: ${impact.breakingChanges.length} removed export(s) with active consumers`,
+    "", "| File | Export | Consumers |", "|---|---|---|",
+  ];
+  for (const bc of impact.breakingChanges) {
+    const shown = bc.consumers.slice(0, 3).map((c) => `\`${c}\``).join(", ");
+    const more = bc.consumers.length > 3 ? ` +${bc.consumers.length - 3} more` : "";
+    lines.push(`| \`${bc.file}\` | \`${bc.exportName}\` | ${shown}${more} |`);
+  }
+  lines.push("");
+  return lines;
+}
+
+function buildNewExportsSection(impact: ImpactSummary): string[] {
+  const newExports = impact.exportDiffs.flatMap((d) => d.added.map((name) => ({ file: d.file, name })));
+  if (newExports.length === 0) return [];
+  const lines = ["<details>", `<summary>✨ ${newExports.length} new export(s)</summary>`, ""];
+  for (const exp of newExports.slice(0, 30)) lines.push(`- \`${exp.file}\` → \`${exp.name}\``);
+  if (newExports.length > 30) lines.push(`- *...${newExports.length - 30} more*`);
+  lines.push("", "</details>", "");
+  return lines;
+}
+
+function buildImpactSection(changedFiles: string[], impact: ImpactSummary): string[] {
+  if (changedFiles.length === 0) return ["No source files changed in this PR.", ""];
+
+  const lines = [`### ${changedFiles.length} file(s) changed → ${impact.totalAffected} file(s) affected`, ""];
+
+  if (impact.totalAffected === 0 && changedFiles.length <= 10) {
+    for (const f of changedFiles) lines.push(`- \`${f}\` — no dependents affected`);
+    lines.push("");
+  }
+
+  const withImpact = impact.perFile.filter((f) => f.affectedCount > 0);
+  if (withImpact.length > 0) {
+    lines.push("| Changed | Affected | Max Depth |", "|---|---|---|");
+    for (const f of withImpact.slice(0, 15)) lines.push(`| \`${f.file}\` | ${f.affectedCount} | ${f.maxDepth} |`);
+    if (withImpact.length > 15) lines.push(`| *...${withImpact.length - 15} more* | | |`);
+    lines.push("");
+  }
+
+  lines.push(...buildSymbolBreakdown(withImpact));
+  lines.push(...buildAffectedList(impact));
+  return lines;
+}
+
+function buildSymbolBreakdown(withImpact: FileImpact[]): string[] {
+  const filesWithSymbols = withImpact.filter((f) => f.symbols.length > 1);
+  if (filesWithSymbols.length === 0) return [];
+  const lines = ["<details>", "<summary>🔬 Symbol-level breakdown</summary>", ""];
+  for (const f of filesWithSymbols.slice(0, 10)) {
+    lines.push(`**\`${f.file}\`** (${f.affectedCount} at file level)`, "", "| Export | Affected | |", "|---|---|---|");
+    for (const sym of f.symbols.slice(0, 15)) {
+      const label = sym.status === "removed" ? "🔴 removed" : sym.status === "added" ? "✨ new" : "";
+      lines.push(`| \`${sym.name}\` | ${sym.affectedFiles} | ${label} |`);
+    }
+    lines.push("");
+  }
+  lines.push("</details>", "");
+  return lines;
+}
+
+function buildAffectedList(impact: ImpactSummary): string[] {
+  if (impact.allAffected.length === 0) return [];
+  const lines = ["<details>", `<summary>📋 All affected files (${impact.allAffected.length})</summary>`, "", "| File | Depth | Via |", "|---|---|---|"];
+  for (const [file, info] of impact.allAffected.slice(0, 50)) {
+    lines.push(`| \`${file}\` | ${info.depth === 1 ? "direct" : info.depth} | \`${info.via}\` |`);
+  }
+  if (impact.allAffected.length > 50) lines.push(`| *...${impact.allAffected.length - 50} more* | | |`);
+  lines.push("", "</details>", "");
+  return lines;
+}
+
+function buildScoreBreakdown(head: BranchAnalysis, base: BranchAnalysis | null): string[] {
+  const p = head.health.penalties;
+  const hasPenalties = Object.values(p).some((v) => v > 0);
+  if (!hasPenalties && !base) return [];
+
+  const lines = ["<details>", "<summary>📊 Score breakdown</summary>", ""];
 
   if (base) {
-    const delta = head.health.score - base.health.score;
-    if (delta === 0) {
-      lines.push(`## 🫀 Impulse — ${score} · no change`);
-    } else {
-      const emoji = delta > 0 ? "📈" : "📉";
-      const baseName = config.baseRef.replace(/^origin\//, "");
-      lines.push(
-        `## 🫀 Impulse — ${score} · ${emoji} **${deltaStr(delta)}** from \`${baseName}\``,
-      );
-    }
+    const bp = base.health.penalties;
+    lines.push("| Penalty | Base | PR | Delta |", "|---|---|---|---|");
+    lines.push(penaltyDeltaRow("Cycles", bp.cycles, p.cycles));
+    lines.push(penaltyDeltaRow("God files", bp.godFiles, p.godFiles));
+    lines.push(penaltyDeltaRow("Deep chains", bp.deepChains, p.deepChains));
+    lines.push(penaltyDeltaRow("Orphans", bp.orphans, p.orphans));
+    lines.push(penaltyDeltaRow("Hub concentration", bp.hubConcentration, p.hubConcentration));
+    lines.push(penaltyDeltaRow("SDP violations", bp.stabilityViolations, p.stabilityViolations));
   } else {
-    lines.push(`## 🫀 Impulse — ${score}`);
+    lines.push("| Penalty | Points |", "|---|---|");
+    if (p.cycles > 0) lines.push(`| Cycles | -${p.cycles} |`);
+    if (p.godFiles > 0) lines.push(`| God files | -${p.godFiles} |`);
+    if (p.deepChains > 0) lines.push(`| Deep chains | -${p.deepChains} |`);
+    if (p.orphans > 0) lines.push(`| Orphans | -${p.orphans} |`);
+    if (p.hubConcentration > 0) lines.push(`| Hub concentration | -${p.hubConcentration} |`);
+    if (p.stabilityViolations > 0) lines.push(`| SDP violations | -${p.stabilityViolations} |`);
+  }
+
+  lines.push("", "</details>", "");
+  return lines;
+}
+
+function buildBoundarySection(boundaryReport: BoundaryReport | null): string[] {
+  if (!boundaryReport) return [];
+  const lines: string[] = [];
+
+  if (boundaryReport.violations.length > 0) {
+    lines.push(`### 🚧 ${boundaryReport.violations.length} boundary violation(s)`, "", "| From | To | Rule |", "|---|---|---|");
+    for (const v of boundaryReport.violations.slice(0, 20)) {
+      lines.push(`| \`${v.from}\` | \`${v.to}\` | **${v.fromBoundary}** cannot import from **${v.toBoundary}** |`);
+    }
+    if (boundaryReport.violations.length > 20) lines.push(`| *...${boundaryReport.violations.length - 20} more* | | |`);
+    lines.push("");
+  } else {
+    lines.push("✅ All architecture boundaries respected.", "");
+  }
+
+  if (boundaryReport.boundaryStats.length > 0) {
+    lines.push("<details>", "<summary>🏗️ Boundary summary</summary>", "", "| Boundary | Files | Internal | Cross | Violations |", "|---|---|---|---|---|");
+    for (const bs of boundaryReport.boundaryStats) {
+      const status = bs.violations > 0 ? `⚠️ ${bs.violations}` : "✅ 0";
+      lines.push(`| **${bs.name}** (\`${bs.path}\`) | ${bs.files} | ${bs.internalEdges} | ${bs.externalEdges} | ${status} |`);
+    }
+    lines.push("", "</details>", "");
+  }
+
+  return lines;
+}
+
+function buildStabilitySection(head: BranchAnalysis): string[] {
+  if (!head.health.stability || head.health.stability.modules.length === 0) return [];
+  const stab = head.health.stability;
+  const lines = ["<details>", "<summary>📐 Module stability</summary>", "", "| Module | Files | Ca | Ce | Instability | Cohesion |", "|---|---|---|---|---|---|"];
+  for (const m of stab.modules) {
+    lines.push(`| **${m.name}** | ${m.files} | ${m.ca} | ${m.ce} | ${m.instability.toFixed(2)} | ${m.cohesion.toFixed(2)} |`);
   }
   lines.push("");
 
-  // ── New / resolved issues ──
-  if (base) {
-    const issues: string[] = [];
-
-    const baseCycleKeys = new Set(
-      base.health.cycles.map((c) => c.cycle.join("→")),
-    );
-    const headCycleKeys = new Set(
-      head.health.cycles.map((c) => c.cycle.join("→")),
-    );
-
-    for (const cycle of head.health.cycles) {
-      if (!baseCycleKeys.has(cycle.cycle.join("→"))) {
-        const label =
-          cycle.severity === "tight-couple"
-            ? `\`${cycle.cycle[0]}\` ↔ \`${cycle.cycle[1]}\``
-            : cycle.cycle.map((f) => `\`${f}\``).join(" → ");
-        issues.push(`⚠️ New cycle: ${label} (${cycle.severity})`);
-      }
-    }
-
-    for (const cycle of base.health.cycles) {
-      if (!headCycleKeys.has(cycle.cycle.join("→"))) {
-        issues.push(`✅ Resolved cycle: \`${cycle.cycle[0]}\` ↔ \`${cycle.cycle[1]}\``);
-      }
-    }
-
-    const baseGodSet = new Set(base.health.godFiles.map((g) => g.file));
-    for (const god of head.health.godFiles) {
-      if (!baseGodSet.has(god.file)) {
-        issues.push(
-          `⚠️ New god file: \`${god.file}\` (${god.totalConnections} connections)`,
-        );
-      }
-    }
-
-    if (issues.length > 0) {
-      for (const issue of issues) lines.push(issue);
-      lines.push("");
-    }
-  }
-
-  // ── Breaking changes ──
-  if (impact.breakingChanges.length > 0) {
-    lines.push(
-      `### ⚠️ Breaking: ${impact.breakingChanges.length} removed export(s) with active consumers`,
-    );
-    lines.push("");
-    lines.push("| File | Export | Consumers |");
-    lines.push("|---|---|---|");
-    for (const bc of impact.breakingChanges) {
-      const shown = bc.consumers
-        .slice(0, 3)
-        .map((c) => `\`${c}\``)
-        .join(", ");
-      const more =
-        bc.consumers.length > 3
-          ? ` +${bc.consumers.length - 3} more`
-          : "";
-      lines.push(
-        `| \`${bc.file}\` | \`${bc.exportName}\` | ${shown}${more} |`,
-      );
+  if (stab.violations.length > 0) {
+    lines.push(`**${stab.violations.length} SDP violation(s):** stable module depends on less stable module`, "");
+    for (const v of stab.violations) {
+      lines.push(`- **${v.from}** (I=${v.fromInstability.toFixed(2)}) → **${v.to}** (I=${v.toInstability.toFixed(2)})`);
     }
     lines.push("");
-  }
-
-  // ── New exports ──
-  const newExports = impact.exportDiffs.flatMap((d) =>
-    d.added.map((name) => ({ file: d.file, name })),
-  );
-  if (newExports.length > 0) {
-    lines.push("<details>");
-    lines.push(
-      `<summary>✨ ${newExports.length} new export(s)</summary>`,
-    );
-    lines.push("");
-    for (const exp of newExports.slice(0, 30)) {
-      lines.push(`- \`${exp.file}\` → \`${exp.name}\``);
-    }
-    if (newExports.length > 30) {
-      lines.push(`- *...${newExports.length - 30} more*`);
-    }
-    lines.push("");
-    lines.push("</details>");
-    lines.push("");
-  }
-
-  // ── Impact summary ──
-  if (changedFiles.length > 0) {
-    lines.push(
-      `### ${changedFiles.length} file(s) changed → ${impact.totalAffected} file(s) affected`,
-    );
-    lines.push("");
-
-    if (impact.totalAffected === 0 && changedFiles.length <= 10) {
-      for (const f of changedFiles) {
-        lines.push(`- \`${f}\` — no dependents affected`);
-      }
-      lines.push("");
-    }
-
-    const withImpact = impact.perFile.filter((f) => f.affectedCount > 0);
-
-    if (withImpact.length > 0) {
-      lines.push("| Changed | Affected | Max Depth |");
-      lines.push("|---|---|---|");
-      for (const f of withImpact.slice(0, 15)) {
-        lines.push(`| \`${f.file}\` | ${f.affectedCount} | ${f.maxDepth} |`);
-      }
-      if (withImpact.length > 15) {
-        lines.push(`| *...${withImpact.length - 15} more* | | |`);
-      }
-      lines.push("");
-    }
-
-    const filesWithSymbols = withImpact.filter((f) => f.symbols.length > 1);
-    if (filesWithSymbols.length > 0) {
-      lines.push("<details>");
-      lines.push("<summary>🔬 Symbol-level breakdown</summary>");
-      lines.push("");
-      for (const f of filesWithSymbols.slice(0, 10)) {
-        lines.push(`**\`${f.file}\`** (${f.affectedCount} at file level)`);
-        lines.push("");
-        lines.push("| Export | Affected | |");
-        lines.push("|---|---|---|");
-        for (const sym of f.symbols.slice(0, 15)) {
-          const label =
-            sym.status === "removed"
-              ? "🔴 removed"
-              : sym.status === "added"
-                ? "✨ new"
-                : "";
-          lines.push(
-            `| \`${sym.name}\` | ${sym.affectedFiles} | ${label} |`,
-          );
-        }
-        lines.push("");
-      }
-      lines.push("</details>");
-      lines.push("");
-    }
-
-    if (impact.allAffected.length > 0) {
-      lines.push("<details>");
-      lines.push(
-        `<summary>📋 All affected files (${impact.allAffected.length})</summary>`,
-      );
-      lines.push("");
-      lines.push("| File | Depth | Via |");
-      lines.push("|---|---|---|");
-      for (const [file, info] of impact.allAffected.slice(0, 50)) {
-        const depth = info.depth === 1 ? "direct" : `${info.depth}`;
-        lines.push(`| \`${file}\` | ${depth} | \`${info.via}\` |`);
-      }
-      if (impact.allAffected.length > 50) {
-        lines.push(`| *...${impact.allAffected.length - 50} more* | | |`);
-      }
-      lines.push("");
-      lines.push("</details>");
-      lines.push("");
-    }
   } else {
-    lines.push("No source files changed in this PR.");
-    lines.push("");
+    lines.push("✅ Dependencies flow toward stability.", "");
   }
 
-  // ── Score breakdown ──
-  const p = head.health.penalties;
-  const hasPenalties = Object.values(p).some((v) => v > 0);
+  lines.push("</details>", "");
+  return lines;
+}
 
-  if (hasPenalties || base) {
-    lines.push("<details>");
-    lines.push("<summary>📊 Score breakdown</summary>");
-    lines.push("");
-
-    if (base) {
-      const bp = base.health.penalties;
-      lines.push("| Penalty | Base | PR | Delta |");
-      lines.push("|---|---|---|---|");
-      lines.push(penaltyDeltaRow("Cycles", bp.cycles, p.cycles));
-      lines.push(penaltyDeltaRow("God files", bp.godFiles, p.godFiles));
-      lines.push(penaltyDeltaRow("Deep chains", bp.deepChains, p.deepChains));
-      lines.push(penaltyDeltaRow("Orphans", bp.orphans, p.orphans));
-      lines.push(
-        penaltyDeltaRow("Hub concentration", bp.hubConcentration, p.hubConcentration),
-      );
-      lines.push(
-        penaltyDeltaRow("SDP violations", bp.stabilityViolations, p.stabilityViolations),
-      );
-    } else {
-      lines.push("| Penalty | Points |");
-      lines.push("|---|---|");
-      if (p.cycles > 0) lines.push(`| Cycles | -${p.cycles} |`);
-      if (p.godFiles > 0) lines.push(`| God files | -${p.godFiles} |`);
-      if (p.deepChains > 0) lines.push(`| Deep chains | -${p.deepChains} |`);
-      if (p.orphans > 0) lines.push(`| Orphans | -${p.orphans} |`);
-      if (p.hubConcentration > 0) lines.push(`| Hub concentration | -${p.hubConcentration} |`);
-      if (p.stabilityViolations > 0) lines.push(`| SDP violations | -${p.stabilityViolations} |`);
-    }
-
-    lines.push("");
-    lines.push("</details>");
-    lines.push("");
-  }
-
-  // ── Boundary check ──
-  if (boundaryReport) {
-    if (boundaryReport.violations.length > 0) {
-      lines.push(
-        `### 🚧 ${boundaryReport.violations.length} boundary violation(s)`,
-      );
-      lines.push("");
-      lines.push("| From | To | Rule |");
-      lines.push("|---|---|---|");
-      for (const v of boundaryReport.violations.slice(0, 20)) {
-        lines.push(
-          `| \`${v.from}\` | \`${v.to}\` | **${v.fromBoundary}** cannot import from **${v.toBoundary}** |`,
-        );
-      }
-      if (boundaryReport.violations.length > 20) {
-        lines.push(
-          `| *...${boundaryReport.violations.length - 20} more* | | |`,
-        );
-      }
-      lines.push("");
-    } else {
-      lines.push("✅ All architecture boundaries respected.");
-      lines.push("");
-    }
-
-    if (boundaryReport.boundaryStats.length > 0) {
-      lines.push("<details>");
-      lines.push("<summary>🏗️ Boundary summary</summary>");
-      lines.push("");
-      lines.push("| Boundary | Files | Internal | Cross | Violations |");
-      lines.push("|---|---|---|---|---|");
-      for (const bs of boundaryReport.boundaryStats) {
-        const status = bs.violations > 0 ? `⚠️ ${bs.violations}` : "✅ 0";
-        lines.push(
-          `| **${bs.name}** (\`${bs.path}\`) | ${bs.files} | ${bs.internalEdges} | ${bs.externalEdges} | ${status} |`,
-        );
-      }
-      lines.push("");
-      lines.push("</details>");
-      lines.push("");
-    }
-  }
-
-  // ── Module stability ──
-  if (head.health.stability && head.health.stability.modules.length > 0) {
-    const stab = head.health.stability;
-    lines.push("<details>");
-    lines.push("<summary>📐 Module stability</summary>");
-    lines.push("");
-    lines.push("| Module | Files | Ca | Ce | Instability | Cohesion |");
-    lines.push("|---|---|---|---|---|---|");
-    for (const m of stab.modules) {
-      lines.push(
-        `| **${m.name}** | ${m.files} | ${m.ca} | ${m.ce} | ${m.instability.toFixed(2)} | ${m.cohesion.toFixed(2)} |`,
-      );
-    }
-    lines.push("");
-
-    if (stab.violations.length > 0) {
-      lines.push(`**${stab.violations.length} SDP violation(s):** stable module depends on less stable module`);
-      lines.push("");
-      for (const v of stab.violations) {
-        lines.push(`- **${v.from}** (I=${v.fromInstability.toFixed(2)}) → **${v.to}** (I=${v.toInstability.toFixed(2)})`);
-      }
-      lines.push("");
-    } else {
-      lines.push("✅ Dependencies flow toward stability.");
-      lines.push("");
-    }
-
-    lines.push("</details>");
-    lines.push("");
-  }
-
-  // ── Footer ──
+function buildFooter(head: BranchAnalysis, base: BranchAnalysis | null): string[] {
   const totalMs = head.durationMs + (base?.durationMs ?? 0);
-  lines.push("---");
-  lines.push(
+  return [
+    "---",
     `<sub>⚡ ${head.filesScanned} files analyzed in ${totalMs}ms · <a href="https://github.com/stulevtoday/Impulse">Impulse</a></sub>`,
-  );
-
-  return lines.join("\n");
+  ];
 }
 
 // ── GitHub API ─────────────────────────────────────────────────────
