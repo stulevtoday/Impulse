@@ -15,7 +15,7 @@ export function rootNode(tree: Tree): SyntaxNode {
 
 export type { Tree };
 
-type LanguageId = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp" | "java" | "kotlin";
+type LanguageId = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp" | "java" | "kotlin" | "php";
 
 export interface ParseResult {
   filePath: string;

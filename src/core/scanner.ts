@@ -30,6 +30,8 @@ const DEFAULT_IGNORE = [
   "**/target/**",
   "**/.gradle/**",
   "**/.mvn/**",
+  "**/vendor/**",
+  "**/storage/**",
 ];
 
 const SUPPORTED_EXTENSIONS = [
@@ -47,6 +49,7 @@ const SUPPORTED_EXTENSIONS = [
   "cs",
   "java",
   "kt",
+  "php",
 ];
 
 export async function scanProject(rootDir: string): Promise<ScanResult> {

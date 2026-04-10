@@ -79,6 +79,7 @@ export function registerDoctorCommand(program: Command): void {
         else if (ext === ".cs") langSet.add("C#");
         else if (ext === ".java") langSet.add("Java");
         else if (ext === ".kt") langSet.add("Kotlin");
+        else if (ext === ".php") langSet.add("PHP");
       }
       const langs = [...langSet].join(" + ") || "unknown";
 

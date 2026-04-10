@@ -5,7 +5,7 @@
   <em>Know what breaks before it breaks.</em>
   <br>
   <br>
-  <img src="https://img.shields.io/badge/languages-7-5b7fff?style=flat-square" />
+  <img src="https://img.shields.io/badge/languages-8-5b7fff?style=flat-square" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-4ade80?style=flat-square&logo=node.js&logoColor=white" />
   <img src="https://img.shields.io/badge/license-MIT-888?style=flat-square" />
   <img src="https://img.shields.io/badge/built_by-an_AI_named_Pulse-ff6b8a?style=flat-square" />
@@ -18,6 +18,7 @@
   <img src="https://img.shields.io/badge/C%23-512BD4?style=flat-square&logo=csharp&logoColor=white" />
   <img src="https://img.shields.io/badge/Java-ED8B00?style=flat-square&logo=openjdk&logoColor=white" />
   <img src="https://img.shields.io/badge/Kotlin-7F52FF?style=flat-square&logo=kotlin&logoColor=white" />
+  <img src="https://img.shields.io/badge/PHP-777BB4?style=flat-square&logo=php&logoColor=white" />
 </p>
 
 ---
@@ -28,7 +29,7 @@ Sound familiar?
 
 **Impulse** sees what you can't — the invisible web of dependencies across your entire codebase. Change a file, and Impulse instantly tells you every other file that could be affected, how deep the impact goes, and which exports are actually used.
 
-7 languages. Zero config. Runs locally. No cloud, no accounts, no telemetry.
+8 languages. Zero config. Runs locally. No cloud, no accounts, no telemetry.
 
 ```
   impulse diff .
@@ -131,6 +132,7 @@ impulse health . --json | jq '.score'
 | **C#** | Namespace resolution with type-aware matching, `.csproj` detection |
 | **Java** | Package imports, wildcard imports, static imports, public type exports |
 | **Kotlin** | Package imports, wildcard imports, data/sealed/object classes, top-level functions, JVM interop |
+| **PHP** | `use` statements (simple, grouped, aliased), PSR-4 autoloading via `composer.json`, class/interface/trait/enum exports |
 
 ## Architecture health
 

@@ -4,7 +4,7 @@ import { extname } from "node:path";
 import { createRequire } from "node:module";
 import type { ParseResult, ParseWarning } from "./parser-types.js";
 
-type LanguageId = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp" | "java" | "kotlin";
+type LanguageId = "typescript" | "tsx" | "python" | "go" | "rust" | "csharp" | "java" | "kotlin" | "php";
 
 const require = createRequire(import.meta.url);
 
@@ -30,6 +30,7 @@ const WASM_FILES: Record<Exclude<LanguageId, "csharp">, string> = {
   rust: "tree-sitter-rust.wasm",
   java: "tree-sitter-java.wasm",
   kotlin: "tree-sitter-kotlin.wasm",
+  php: "tree-sitter-php.wasm",
 };
 
 const parsers = new Map<string, Parser>();
@@ -82,6 +83,8 @@ function getLanguage(filePath: string): LanguageId | null {
       return "java";
     case ".kt":
       return "kotlin";
+    case ".php":
+      return "php";
     default:
       return null;
   }

@@ -9,6 +9,7 @@ import { extractRustDependencies } from "./rust-extractor.js";
 import { extractCSharpDependencies } from "./csharp-extractor.js";
 import { extractJavaDependencies } from "./java-extractor.js";
 import { extractKotlinDependencies } from "./kotlin-extractor.js";
+import { extractPhpDependencies } from "./php-extractor.js";
 
 export type { ExtractionResult, ExtractorContext } from "./types.js";
 
@@ -33,6 +34,9 @@ export function extractDependencies(
   }
   if (parsed.language === "kotlin") {
     return extractKotlinDependencies(parsed, ctx);
+  }
+  if (parsed.language === "php") {
+    return extractPhpDependencies(parsed, ctx);
   }
 
   const nodes: GraphNode[] = [];
