@@ -1,6 +1,7 @@
 import { DependencyGraph, type ImpactResult } from "./graph.js";
 import { scanProject } from "./scanner.js";
 import { parseFile, getParseWarnings, clearParseWarnings } from "./parser.js";
+import type { ParseResult } from "./parser-types.js";
 import { extractDependencies, type ExtractorContext } from "./extractor.js";
 import { loadTsConfigAliases } from "./tsconfig.js";
 
@@ -13,13 +14,17 @@ export interface AnalysisStats {
   aliases: number;
 }
 
+export interface AnalysisHooks {
+  onParsed?: (parsed: ParseResult) => void;
+}
+
 export interface FullAnalysis {
   graph: DependencyGraph;
   stats: AnalysisStats;
   ctx: ExtractorContext;
 }
 
-export async function analyzeProject(rootDir: string): Promise<FullAnalysis> {
+export async function analyzeProject(rootDir: string, hooks?: AnalysisHooks): Promise<FullAnalysis> {
   const start = performance.now();
   const graph = new DependencyGraph();
   clearParseWarnings();
@@ -46,6 +51,7 @@ export async function analyzeProject(rootDir: string): Promise<FullAnalysis> {
       const { nodes, edges } = extractDependencies(parsed, ctx);
       for (const node of nodes) graph.addNode(node);
       for (const edge of edges) graph.addEdge(edge);
+      hooks?.onParsed?.(parsed);
       filesScanned++;
     }
   }

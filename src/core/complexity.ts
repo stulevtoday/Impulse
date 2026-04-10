@@ -167,7 +167,6 @@ const CONFIGS: Record<string, LanguageConfig> = {
 
 export async function analyzeComplexity(rootDir: string): Promise<ComplexityReport> {
   const scan = await scanProject(rootDir);
-  const allFunctions: FunctionComplexity[] = [];
   const files: FileComplexity[] = [];
 
   const BATCH = 20;
@@ -179,13 +178,21 @@ export async function analyzeComplexity(rootDir: string): Promise<ComplexityRepo
       if (!parsed) continue;
       const fns = computeFileComplexity(parsed);
       if (fns.length === 0) continue;
-
-      allFunctions.push(...fns);
-      const total = aggregate(fns);
-      files.push({ filePath: parsed.filePath, functions: fns, ...total });
+      files.push({ filePath: parsed.filePath, functions: fns, ...aggregate(fns) });
     }
   }
 
+  return buildComplexityReport(files);
+}
+
+/**
+ * Build a ComplexityReport from pre-computed per-file data.
+ * Useful when complexity is computed during an existing parse pass
+ * (e.g. via the analyzeProject onParsed hook) to avoid double-parsing.
+ */
+export function buildComplexityReport(files: FileComplexity[]): ComplexityReport {
+  const allFunctions: FunctionComplexity[] = [];
+  for (const f of files) allFunctions.push(...f.functions);
   allFunctions.sort((a, b) => b.cognitive - a.cognitive);
 
   const dist = { simple: 0, moderate: 0, complex: 0, alarming: 0 };

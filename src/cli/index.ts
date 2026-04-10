@@ -32,6 +32,7 @@ import { registerCompareCommand } from "./compare.js";
 import { registerTreeCommand } from "./tree.js";
 import { registerComplexityCommand } from "./complexity.js";
 import { registerRiskCommand } from "./risk.js";
+import { registerRefactorCommand } from "./refactor.js";
 import { runDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -347,6 +348,7 @@ registerCompareCommand(program);
 registerTreeCommand(program);
 registerComplexityCommand(program);
 registerRiskCommand(program);
+registerRefactorCommand(program);
 
 program
   .command("badge")

@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { analyzeProject } from "./analyzer.js";
-import { analyzeComplexity, type ComplexityReport } from "./complexity.js";
+import { computeFileComplexity, buildComplexityReport, type ComplexityReport, type FileComplexity } from "./complexity.js";
 import { analyzeCoupling, type CouplingReport } from "./coupling.js";
 import type { DependencyGraph } from "./graph.js";
 
@@ -56,11 +56,19 @@ export async function analyzeRisk(
 ): Promise<RiskReport> {
   const start = performance.now();
 
-  const [{ graph }, complexity, changeCounts] = await Promise.all([
-    analyzeProject(rootDir),
-    analyzeComplexity(rootDir),
+  const cxFiles: FileComplexity[] = [];
+  const [{ graph }, changeCounts] = await Promise.all([
+    analyzeProject(rootDir, {
+      onParsed(parsed) {
+        const fns = computeFileComplexity(parsed);
+        if (fns.length > 0) {
+          cxFiles.push({ filePath: parsed.filePath, functions: fns, ...aggregateCx(fns) });
+        }
+      },
+    }),
     Promise.resolve(getChangeFrequencies(rootDir, maxCommits)),
   ]);
+  const complexity = buildComplexityReport(cxFiles);
 
   const coupling = analyzeCoupling(graph, rootDir, maxCommits, 3, 0.3);
 
@@ -175,6 +183,22 @@ function buildCouplingMap(report: CouplingReport): Map<string, number> {
     m.set(pair.fileB, (m.get(pair.fileB) ?? 0) + 1);
   }
   return m;
+}
+
+function aggregateCx(fns: { cyclomatic: number; cognitive: number }[]): {
+  totalCyclomatic: number; totalCognitive: number; avgCognitive: number; maxCognitive: number;
+} {
+  let totalCyc = 0, totalCog = 0, maxCog = 0;
+  for (const fn of fns) {
+    totalCyc += fn.cyclomatic;
+    totalCog += fn.cognitive;
+    if (fn.cognitive > maxCog) maxCog = fn.cognitive;
+  }
+  return {
+    totalCyclomatic: totalCyc, totalCognitive: totalCog,
+    avgCognitive: fns.length ? Math.round((totalCog / fns.length) * 10) / 10 : 0,
+    maxCognitive: maxCog,
+  };
 }
 
 function getChangeFrequencies(rootDir: string, maxCommits: number): Map<string, number> {

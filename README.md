@@ -111,6 +111,7 @@ impulse scan .
 | `coupling .` | Find hidden coupling — co-change without imports |
 | `complexity .` | Cyclomatic + cognitive complexity per function across all files |
 | `risk .` | **Unified risk** — complexity × churn × impact × coupling in one view |
+| `refactor .` | **Auto-refactor** — remove dead exports with `--dry-run` preview |
 | `focus file.ts .` | Deep X-ray of a single file |
 | `graph . --format mermaid` | Export dependency graph as **Mermaid**, DOT, or JSON |
 | `badge .` | Generate SVG health badge for your README |
