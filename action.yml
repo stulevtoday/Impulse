@@ -1,5 +1,5 @@
-name: 'Impulse CI'
-description: 'Dependency impact analysis and architecture health scoring for pull requests. Shows what breaks before it breaks.'
+name: 'Impulse Analyzer'
+description: 'Dependency impact analysis and architecture health scoring for pull requests. 10 languages, zero config.'
 
 branding:
   icon: 'activity'
