@@ -1,18 +1,29 @@
 {
   "name": "impulse-vscode",
   "displayName": "Impulse",
-  "description": "Know what breaks before it breaks. Live dependency impact analysis.",
-  "version": "0.1.0",
+  "description": "Know what breaks before it breaks. Live dependency impact analysis, complexity scoring, and dead export detection — inline in your editor.",
+  "version": "0.5.0",
   "publisher": "stulevtoday",
+  "icon": "icon.png",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Programming Languages", "Other"],
+  "categories": ["Programming Languages", "Linters", "Other"],
+  "keywords": ["dependency", "impact analysis", "complexity", "architecture", "refactoring", "dead code", "blast radius"],
+  "galleryBanner": {
+    "color": "#0F172A",
+    "theme": "dark"
+  },
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/stulevtoday/Impulse"
+  },
+  "homepage": "https://github.com/stulevtoday/Impulse",
+  "bugs": {
+    "url": "https://github.com/stulevtoday/Impulse/issues"
   },
   "contributes": {
     "commands": [
