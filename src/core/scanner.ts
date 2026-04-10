@@ -27,6 +27,9 @@ const DEFAULT_IGNORE = [
   "**/Migrations/**",
   "**/obj/**",
   "**/bin/**",
+  "**/target/**",
+  "**/.gradle/**",
+  "**/.mvn/**",
 ];
 
 const SUPPORTED_EXTENSIONS = [
@@ -42,6 +45,8 @@ const SUPPORTED_EXTENSIONS = [
   "go",
   "rs",
   "cs",
+  "java",
+  "kt",
 ];
 
 export async function scanProject(rootDir: string): Promise<ScanResult> {

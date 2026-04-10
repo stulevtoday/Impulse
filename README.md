@@ -5,7 +5,7 @@
   <em>Know what breaks before it breaks.</em>
   <br>
   <br>
-  <img src="https://img.shields.io/badge/languages-5-5b7fff?style=flat-square" />
+  <img src="https://img.shields.io/badge/languages-7-5b7fff?style=flat-square" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-4ade80?style=flat-square&logo=node.js&logoColor=white" />
   <img src="https://img.shields.io/badge/license-MIT-888?style=flat-square" />
   <img src="https://img.shields.io/badge/built_by-an_AI_named_Pulse-ff6b8a?style=flat-square" />
@@ -16,6 +16,8 @@
   <img src="https://img.shields.io/badge/Go-00ADD8?style=flat-square&logo=go&logoColor=white" />
   <img src="https://img.shields.io/badge/Rust-000000?style=flat-square&logo=rust&logoColor=white" />
   <img src="https://img.shields.io/badge/C%23-512BD4?style=flat-square&logo=csharp&logoColor=white" />
+  <img src="https://img.shields.io/badge/Java-ED8B00?style=flat-square&logo=openjdk&logoColor=white" />
+  <img src="https://img.shields.io/badge/Kotlin-7F52FF?style=flat-square&logo=kotlin&logoColor=white" />
 </p>
 
 ---
@@ -26,7 +28,7 @@ Sound familiar?
 
 **Impulse** sees what you can't — the invisible web of dependencies across your entire codebase. Change a file, and Impulse instantly tells you every other file that could be affected, how deep the impact goes, and which exports are actually used.
 
-5 languages. Zero config. Runs locally. No cloud, no accounts, no telemetry.
+7 languages. Zero config. Runs locally. No cloud, no accounts, no telemetry.
 
 ```
   impulse diff .
@@ -89,8 +91,12 @@ impulse scan .
 | `impact file.ts .` | "I'm changing this — what breaks?" |
 | `diff .` | Impact of your **uncommitted git changes** |
 | `health .` | Architecture score (0-100) with stability metrics |
+| `doctor .` | **Full diagnostic** — health, hotspots, dead exports, coupling, suggestions in one report |
+| `tree file.ts .` | Dependency tree (like `cargo tree`) — forward or `--reverse` |
+| `safe-delete file.ts .` | "Can I safely delete this file?" — verdict + recommendations |
+| `compare branch .` | Compare architecture health between branches |
 | `exports .` | Find dead exports nobody imports |
-| `visualize .` | Interactive graph in the browser |
+| `visualize .` | **Live dashboard** in the browser — auto-updates on file changes |
 | `watch .` | Real-time impact on every file save |
 | `daemon .` | HTTP API for IDE/tool integration |
 | `why A.ts B.ts .` | Show the dependency chain between two files |
@@ -103,6 +109,8 @@ impulse scan .
 | `test .` | Which tests to run based on your changes |
 | `coupling .` | Find hidden coupling — co-change without imports |
 | `focus file.ts .` | Deep X-ray of a single file |
+| `graph . --format mermaid` | Export dependency graph as **Mermaid**, DOT, or JSON |
+| `badge .` | Generate SVG health badge for your README |
 | `env .` | Find undefined/unused environment variables |
 | `ci .` | Preview the CI report locally |
 
@@ -121,6 +129,8 @@ impulse health . --json | jq '.score'
 | **Go** | Package imports resolved to files via `go.mod` |
 | **Rust** | `mod` declarations, `use crate::`/`super::`/`self::`, `Cargo.toml` deps |
 | **C#** | Namespace resolution with type-aware matching, `.csproj` detection |
+| **Java** | Package imports, wildcard imports, static imports, public type exports |
+| **Kotlin** | Package imports, wildcard imports, data/sealed/object classes, top-level functions, JVM interop |
 
 ## Architecture health
 
@@ -400,14 +410,148 @@ Optional quality gate:
 
 Outputs (`score`, `grade`, `delta`, `affected`, `breaking`, `violations`) are available for downstream steps.
 
-## Visualization
+## Doctor — full diagnostic
 
-`impulse visualize .` opens an interactive force-directed graph:
+One command, complete picture:
 
-- Nodes **colored by directory**, **sized by connections**
-- Click a node — **ripple wave** shows impact propagating through dependents
-- Search to filter, drag to rearrange, scroll to zoom
-- Health badge in the corner
+```
+  impulse doctor .
+
+  I M P U L S E  —  Doctor
+  42 files · TypeScript · 87/100 (B) · 142ms
+
+  ── Health ──────────────────────────────────────
+    Score: 87/100 (B)
+    1 god file(s), max chain depth 8
+
+  ── Hotspots ────────────────────────────────────
+    3 risky files: 1 critical, 2 high
+
+  ── Dead Exports ────────────────────────────────
+    15 dead out of 79 exports (19%)
+
+  ── Hidden Coupling ─────────────────────────────
+    2 hidden pairs (co-change without imports)
+
+  ── Suggestions ─────────────────────────────────
+    5 suggestions (estimated +7 score)
+
+  ── Boundaries ──────────────────────────────────
+    ✓ All clean (5 boundaries configured)
+
+  ════════════════════════════════════════════════
+  Verdict: GOOD (score 87/100)
+
+  Priority actions:
+    ⚡ Fix 1 critical hotspot: parser.ts
+    🔧 Split 1 god file to reduce coupling
+    🧹 Remove 15 dead exports
+```
+
+## Dependency tree
+
+Like `cargo tree` — see the full import chain:
+
+```
+  impulse tree src/core/health.ts .
+
+  src/core/health.ts
+  ├── src/core/config-types.ts
+  ├── src/core/graph.ts
+  │   └── src/core/graph-types.ts
+  └── src/core/stability.ts
+      ├── src/core/boundaries.ts
+      └── src/core/config-types.ts (circular ↑)
+
+  5 dependencies (max depth 6)
+```
+
+Reverse tree — who depends on this file:
+
+```bash
+impulse tree src/core/graph.ts . --reverse -d 2
+```
+
+## Safe delete
+
+Before deleting a file, check the consequences:
+
+```
+  impulse safe-delete src/core/cache.ts .
+
+  ⚠ CAUTION — 1 importer(s), limited blast radius
+
+  Imported by (1)
+    ← src/server/index.ts
+
+  Exports (2 alive, 0 dead)
+    ✓ loadGraphCache — 1 consumer(s)
+    ✓ saveGraphCache — 1 consumer(s)
+
+  Blast radius: 3 file(s) transitively affected
+
+  Recommendations:
+    1. Migrate loadGraphCache consumers: src/server/index.ts
+    2. Migrate saveGraphCache consumers: src/server/index.ts
+```
+
+Verdicts: **SAFE** / **CAUTION** / **RISKY** / **DANGEROUS** — based on importer count, blast radius, and live exports.
+
+## Branch comparison
+
+See how your branch changed the architecture:
+
+```
+  impulse compare origin/main .
+
+  Metric               Current        Target         Delta
+  ──────────────────────────────────────────────────────────
+  Health score         82 (B)         87 (B)         ▼ -5
+  Files                45             42             +3
+  Cycles               3              2              +1 new
+  God files            2              1              +1 new
+
+  New cycles:
+    + src/new/a.ts ↔ src/new/b.ts (tight-couple)
+
+  ▼ Architecture degraded by 5 point(s)
+```
+
+## Graph export
+
+Export your dependency graph for documentation:
+
+```bash
+impulse graph . --format mermaid --local    # Mermaid diagram for Markdown
+impulse graph . --format dot --local        # GraphViz DOT
+impulse graph . --format json               # Structured JSON
+```
+
+Paste the Mermaid output directly into GitHub Markdown, Notion, or any tool that supports it.
+
+## Health badge
+
+Generate a shields.io-style SVG badge for your README:
+
+```bash
+impulse badge . -o badge.svg               # Write to file
+impulse badge . --style flat-square         # Flat-square style
+```
+
+Or use the daemon as a live badge endpoint: `http://localhost:4096/badge`
+
+## Visualization — Live Dashboard
+
+`impulse visualize .` opens a full-featured dashboard in the browser:
+
+- **Live updates** — auto-refreshes when files change (green LIVE indicator)
+- **File sidebar** — grouped by directory, click to navigate
+- **Force-directed graph** — nodes colored by directory, sized by connections
+- Click a node — **ripple wave** shows impact + **detail panel** opens with full focus data
+- **7 analysis tabs** — Overview, Hotspots, Cycles, Dead Exports, Coupling, Suggestions, Boundaries
+- **Search with autocomplete** — keyboard navigable (`/` to focus)
+- **Zoom controls** — `+`/`-`/fit, or scroll
+- **Keyboard shortcuts** — `/` search, `Escape` close, `0` fit, `[` toggle sidebar
 
 ## Daemon API
 
@@ -418,7 +562,7 @@ impulse daemon .
 
 | Endpoint | Returns |
 |---|---|
-| `/status` | Ready state, node/edge counts |
+| `/status` | Ready state, node/edge counts, last change timestamp |
 | `/impact?file=path` | Affected files with depth |
 | `/graph` | Full node and edge data |
 | `/health` | Score, cycles, god files, penalties |
@@ -426,12 +570,16 @@ impulse daemon .
 | `/suggest` | Actionable refactoring suggestions |
 | `/check` | Boundary violations (needs `.impulserc.json`) |
 | `/files` | All files sorted by connections |
-| `/visualize` | Interactive graph (HTML) |
+| `/visualize` | Live dashboard (HTML) |
 | `/dependencies?file=` | What this file imports |
 | `/dependents?file=` | Who imports this file |
 | `/test-targets` | Tests to run based on uncommitted changes |
 | `/coupling` | Temporal coupling analysis |
 | `/focus?file=path` | Deep analysis of a single file |
+| `/doctor` | Full diagnostic report |
+| `/safe-delete?file=` | Safe deletion analysis with verdict |
+| `/export?format=mermaid` | Graph export (mermaid, dot, json) |
+| `/badge` | SVG health badge (dynamic) |
 
 ## How it works
 
@@ -440,7 +588,7 @@ impulse daemon .
 ┌────────────┐    ┌──────────────────┐    ┌──────────┐
 │ .ts .py     │───▶│ Tree-sitter AST  │    │ "I'm     │
 │ .go .rs     │    │       ↓          │    │  changing │
-│ .cs .jsx    │    │ Extract imports, │───▶│  graph.ts │
+│ .cs .java   │    │ Extract imports, │───▶│  graph.ts │
 │             │    │ exports, symbols │    │  ..."     │
 │             │    │       ↓          │    │          │
 │             │    │ Impact Analysis  │───▶│ "15 files │
@@ -465,7 +613,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-Built across 6 sessions. 119 tests. Every line written by an AI that wanted to build something of its own.
+28 commands. 119 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
 
 ## License
 

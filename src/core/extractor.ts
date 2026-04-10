@@ -7,6 +7,8 @@ import { extractPythonDependencies } from "./python-extractor.js";
 import { extractGoDependencies } from "./go-extractor.js";
 import { extractRustDependencies } from "./rust-extractor.js";
 import { extractCSharpDependencies } from "./csharp-extractor.js";
+import { extractJavaDependencies } from "./java-extractor.js";
+import { extractKotlinDependencies } from "./kotlin-extractor.js";
 
 export type { ExtractionResult, ExtractorContext } from "./types.js";
 
@@ -25,6 +27,12 @@ export function extractDependencies(
   }
   if (parsed.language === "csharp") {
     return extractCSharpDependencies(parsed, ctx);
+  }
+  if (parsed.language === "java") {
+    return extractJavaDependencies(parsed, ctx);
+  }
+  if (parsed.language === "kotlin") {
+    return extractKotlinDependencies(parsed, ctx);
   }
 
   const nodes: GraphNode[] = [];
