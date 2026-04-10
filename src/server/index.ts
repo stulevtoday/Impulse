@@ -13,6 +13,9 @@ import { analyzeHotspots } from "../core/hotspots.js";
 import { findTestTargets, getChangedFiles } from "../core/test-targets.js";
 import { analyzeCoupling } from "../core/coupling.js";
 import { focusFile } from "../core/focus.js";
+import { exportGraph, type ExportFormat } from "../core/export-graph.js";
+import { analyzeSafeDelete } from "../core/safe-delete.js";
+import { generateBadgeSVG, type BadgeStyle } from "../core/badge.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -22,6 +25,8 @@ interface DaemonState {
   rootDir: string;
   port: number;
   ready: boolean;
+  lastChangeAt: number;
+  lastChangeFile: string | null;
 }
 
 let state: DaemonState | null = null;
@@ -57,6 +62,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         rootDir: state?.rootDir ?? null,
         ...stats,
         warnings: getParseWarnings().length,
+        lastChangeAt: state?.lastChangeAt ?? 0,
+        lastChangeFile: state?.lastChangeFile ?? null,
       });
       break;
     }
@@ -278,12 +285,80 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       break;
     }
 
+    case "/export": {
+      const format = (query.format || "mermaid") as ExportFormat;
+      const localOnly = query.local !== "false";
+      const output = exportGraph(state!.graph, format, localOnly);
+      if (format === "json") {
+        json(res, 200, JSON.parse(output));
+      } else {
+        res.writeHead(200, { "Content-Type": "text/plain", "Access-Control-Allow-Origin": "*" });
+        res.end(output);
+      }
+      break;
+    }
+
+    case "/safe-delete": {
+      const file = query.file;
+      if (!file) {
+        json(res, 400, { error: "Missing ?file= parameter" });
+        return;
+      }
+      const sdReport = analyzeSafeDelete(state!.graph, file);
+      json(res, 200, sdReport);
+      break;
+    }
+
+    case "/badge": {
+      const config = await loadConfig(state!.rootDir);
+      const badgeHealth = analyzeHealth(state!.graph, config.boundaries);
+      const badgeStyle = (query.style || "flat") as BadgeStyle;
+      const badgeLabel = query.label || "impulse";
+      const svg = generateBadgeSVG({ score: badgeHealth.score, grade: badgeHealth.grade, style: badgeStyle, label: badgeLabel });
+      res.writeHead(200, {
+        "Content-Type": "image/svg+xml",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-cache",
+      });
+      res.end(svg);
+      break;
+    }
+
+    case "/doctor": {
+      const config = await loadConfig(state!.rootDir);
+      const healthReport = analyzeHealth(state!.graph, config.boundaries);
+      const hotspotsReport = analyzeHotspots(state!.graph, state!.rootDir, 200);
+      const couplingData = analyzeCoupling(state!.graph, state!.rootDir, 300, 3, 0.3);
+      const suggestData = generateSuggestions(state!.graph, healthReport);
+      const allEdges = state!.graph.allEdges();
+      const exportNodes = state!.graph.allNodes().filter((n) => n.kind === "export");
+      const deadExports: Array<{ file: string; name: string }> = [];
+      for (const exp of exportNodes) {
+        const users = allEdges.filter((e) => e.to === exp.id && e.kind === "uses_export");
+        if (users.length === 0) deadExports.push({ file: exp.filePath, name: exp.name });
+      }
+      let boundaryData = null;
+      if (config.boundaries && Object.keys(config.boundaries).length > 0) {
+        boundaryData = checkBoundaries(state!.graph, config.boundaries);
+      }
+      json(res, 200, {
+        health: { score: healthReport.score, grade: healthReport.grade, summary: healthReport.summary, penalties: healthReport.penalties, cycles: healthReport.cycles.length, godFiles: healthReport.godFiles.length },
+        hotspots: hotspotsReport.hotspots.filter((h) => h.risk !== "low").slice(0, 10),
+        deadExports: { count: deadExports.length, total: exportNodes.length, items: deadExports },
+        coupling: { hidden: couplingData.hidden.length, pairs: couplingData.hidden.slice(0, 10) },
+        suggestions: { count: suggestData.suggestions.length, improvement: suggestData.estimatedScoreImprovement, items: suggestData.suggestions },
+        boundaries: boundaryData,
+      });
+      break;
+    }
+
     default:
       json(res, 404, { error: "Not found", endpoints: [
         "/status", "/impact?file=", "/graph", "/files",
         "/dependencies?file=", "/dependents?file=", "/health", "/suggest",
         "/check", "/exports", "/warnings", "/visualize", "/hotspots",
         "/test-targets", "/coupling", "/focus?file=",
+        "/export?format=mermaid|dot|json", "/safe-delete?file=", "/doctor",
       ]});
   }
 }
@@ -304,7 +379,7 @@ export async function startDaemon(
   }
 
   const { graph, ctx, stats } = await analyzeProject(absRoot);
-  state = { graph, ctx, rootDir: absRoot, port, ready: true };
+  state = { graph, ctx, rootDir: absRoot, port, ready: true, lastChangeAt: Date.now(), lastChangeFile: null };
 
   console.log(
     `  Indexed: ${stats.filesScanned} files, ${stats.nodeCount} nodes, ${stats.edgeCount} edges (${stats.durationMs}ms)`,
@@ -330,20 +405,24 @@ export async function startDaemon(
       console.log(
         `  [${ts()}] ${filePath} changed → ${affected.length} affected`,
       );
+      if (state) { state.lastChangeAt = Date.now(); state.lastChangeFile = filePath; }
       debounceSave();
     },
     onConfigChange(configFile, rebuildStats) {
       console.log(
         `  [${ts()}] ⚙ ${configFile} changed → full rebuild: ${rebuildStats.files} files, ${rebuildStats.edges} edges (${rebuildStats.durationMs}ms)`,
       );
+      if (state) { state.lastChangeAt = Date.now(); state.lastChangeFile = configFile; }
       debounceSave();
     },
     onAdd(filePath) {
       console.log(`  [${ts()}] ${filePath} added`);
+      if (state) { state.lastChangeAt = Date.now(); state.lastChangeFile = filePath; }
       debounceSave();
     },
     onRemove(filePath) {
       console.log(`  [${ts()}] ${filePath} removed`);
+      if (state) { state.lastChangeAt = Date.now(); state.lastChangeFile = filePath; }
       debounceSave();
     },
   });
@@ -367,7 +446,7 @@ export async function startDaemon(
 
   server.listen(port, () => {
     console.log(`\n  Daemon listening on http://localhost:${port}`);
-    console.log("  Endpoints: /status /impact /graph /files /dependencies /dependents /health /suggest /exports /warnings");
+    console.log("  Endpoints: /status /impact /graph /files /health /suggest /exports /coupling /focus /export /safe-delete /doctor");
     console.log(`  Visualize: http://localhost:${port}/visualize\n`);
   });
 }

@@ -4,7 +4,14 @@ import { Command } from "commander";
 import { resolve, dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { analyzeProject, getParseWarnings, loadEnvFiles, analyzeEnv, DependencyGraph } from "../core/index.js";
+import { analyzeProject } from "../core/analyzer.js";
+import { getParseWarnings } from "../core/parser.js";
+import { loadEnvFiles, analyzeEnv } from "../core/env.js";
+import { DependencyGraph } from "../core/graph.js";
+import { exportGraph, type ExportFormat } from "../core/export-graph.js";
+import { analyzeHealth } from "../core/health.js";
+import { loadConfig } from "../core/config.js";
+import { generateBadgeSVG, type BadgeStyle } from "../core/badge.js";
 import { createWatcher } from "../watchers/fs-watcher.js";
 import { startDaemon } from "../server/index.js";
 import { startExplorer } from "./explore.js";
@@ -19,6 +26,10 @@ import { registerExportsCommand } from "./exports.js";
 import { registerTestCommand } from "./test-cmd.js";
 import { registerCouplingCommand } from "./coupling.js";
 import { registerFocusCommand } from "./focus.js";
+import { registerDoctorCommand } from "./doctor.js";
+import { registerSafeDeleteCommand } from "./safe-delete.js";
+import { registerCompareCommand } from "./compare.js";
+import { registerTreeCommand } from "./tree.js";
 import { runDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -113,13 +124,21 @@ registerImpactCommand(program);
 
 program
   .command("graph")
-  .description("Show the full dependency graph as an edge list")
+  .description("Show the full dependency graph — supports mermaid, dot, and json export")
   .argument("[dir]", "Project root directory", ".")
   .option("--local", "Only show local dependencies, hide external", false)
-  .action(async (dir: string, opts: { local: boolean }) => {
+  .option("--format <fmt>", "Output format: text, mermaid, dot, json", "text")
+  .action(async (dir: string, opts: { local: boolean; format: string }) => {
     const rootDir = resolve(dir);
 
     const { graph, stats } = await analyzeProject(rootDir);
+
+    if (opts.format !== "text") {
+      const fmt = opts.format as ExportFormat;
+      console.log(exportGraph(graph, fmt, opts.local));
+      return;
+    }
+
     let edges = graph.allEdges();
 
     if (opts.local) {
@@ -320,6 +339,39 @@ registerExportsCommand(program);
 registerTestCommand(program);
 registerCouplingCommand(program);
 registerFocusCommand(program);
+registerDoctorCommand(program);
+registerSafeDeleteCommand(program);
+registerCompareCommand(program);
+registerTreeCommand(program);
+
+program
+  .command("badge")
+  .description("Generate an SVG health badge for your README")
+  .argument("[dir]", "Project root directory", ".")
+  .option("-o, --output <path>", "Write badge to file instead of stdout")
+  .option("--style <style>", "Badge style: flat, flat-square", "flat")
+  .option("--label <text>", "Badge label text", "impulse")
+  .action(async (dir: string, opts: { output?: string; style: string; label: string }) => {
+    const rootDir = resolve(dir);
+    const [{ graph }, config] = await Promise.all([
+      analyzeProject(rootDir),
+      loadConfig(rootDir),
+    ]);
+    const health = analyzeHealth(graph, config.boundaries);
+    const svg = generateBadgeSVG({
+      score: health.score,
+      grade: health.grade,
+      style: opts.style as BadgeStyle,
+      label: opts.label,
+    });
+    if (opts.output) {
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(resolve(opts.output), svg, "utf-8");
+      console.log(`  Badge written to ${opts.output} (${health.score}/100 ${health.grade})`);
+    } else {
+      process.stdout.write(svg);
+    }
+  });
 
 program
   .command("daemon")

@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject } from "../core/index.js";
+import { analyzeProject } from "../core/analyzer.js";
 import { focusFile } from "../core/focus.js";
 
 export function registerFocusCommand(program: Command): void {

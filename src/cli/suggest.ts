@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject, analyzeHealth } from "../core/index.js";
+import { analyzeProject } from "../core/analyzer.js";
+import { analyzeHealth } from "../core/health.js";
 import { generateSuggestions, type Suggestion } from "../core/suggest.js";
 
 function printSuggestion(idx: number, s: Suggestion): void {

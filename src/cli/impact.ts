@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject, getFileImpact } from "../core/index.js";
+import { analyzeProject, getFileImpact } from "../core/analyzer.js";
 
 export function registerImpactCommand(program: Command): void {
   program

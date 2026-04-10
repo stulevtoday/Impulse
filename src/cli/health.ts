@@ -1,6 +1,8 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject, analyzeHealth, loadConfig } from "../core/index.js";
+import { analyzeProject } from "../core/analyzer.js";
+import { analyzeHealth } from "../core/health.js";
+import { loadConfig } from "../core/config.js";
 
 export function registerHealthCommand(program: Command): void {
   program

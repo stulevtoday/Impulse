@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject, analyzeHotspots, type HotspotRisk } from "../core/index.js";
+import { analyzeProject } from "../core/analyzer.js";
+import { analyzeHotspots, type HotspotRisk } from "../core/hotspots.js";
 
 export function registerHotspotsCommand(program: Command): void {
   program

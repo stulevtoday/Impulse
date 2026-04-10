@@ -1,6 +1,8 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject, loadConfig, checkBoundaries } from "../core/index.js";
+import { analyzeProject } from "../core/analyzer.js";
+import { loadConfig } from "../core/config.js";
+import { checkBoundaries } from "../core/boundaries.js";
 
 export function registerCheckCommand(program: Command): void {
   program

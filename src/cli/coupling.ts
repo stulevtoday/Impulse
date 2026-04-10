@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
-import { analyzeProject } from "../core/index.js";
+import { analyzeProject } from "../core/analyzer.js";
 import { analyzeCoupling, type CouplingPair } from "../core/coupling.js";
 
 export function registerCouplingCommand(program: Command): void {

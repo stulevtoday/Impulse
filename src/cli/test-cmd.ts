@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
-import { analyzeProject } from "../core/index.js";
+import { analyzeProject } from "../core/analyzer.js";
 import { findTestTargets, getChangedFiles, isTestFile } from "../core/test-targets.js";
 
 export function registerTestCommand(program: Command): void {

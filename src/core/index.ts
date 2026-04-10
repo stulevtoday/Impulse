@@ -24,3 +24,7 @@ export { analyzeCoupling } from "./coupling.js";
 export type { CouplingPair, CouplingReport, CouplingKind } from "./coupling.js";
 export { focusFile } from "./focus.js";
 export type { FocusReport, FocusExport } from "./focus.js";
+export { exportGraph } from "./export-graph.js";
+export type { ExportFormat } from "./export-graph.js";
+export { analyzeSafeDelete } from "./safe-delete.js";
+export type { SafeDeleteReport, SafetyVerdict } from "./safe-delete.js";

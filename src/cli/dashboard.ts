@@ -1,6 +1,9 @@
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
-import { analyzeProject, getFileImpact, analyzeHealth, loadConfig, analyzeHotspots, type HotspotRisk } from "../core/index.js";
+import { analyzeProject, getFileImpact } from "../core/analyzer.js";
+import { analyzeHealth } from "../core/health.js";
+import { loadConfig } from "../core/config.js";
+import { analyzeHotspots, type HotspotRisk } from "../core/hotspots.js";
 
 export async function runDashboard(): Promise<void> {
   const rootDir = resolve(".");
