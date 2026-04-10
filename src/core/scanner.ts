@@ -50,6 +50,14 @@ const SUPPORTED_EXTENSIONS = [
   "java",
   "kt",
   "php",
+  "c",
+  "h",
+  "cpp",
+  "cc",
+  "cxx",
+  "hpp",
+  "hh",
+  "hxx",
 ];
 
 export async function scanProject(rootDir: string): Promise<ScanResult> {

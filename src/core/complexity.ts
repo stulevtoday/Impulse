@@ -150,6 +150,26 @@ const PHP_CFG = cfg({
   elifType: "else_if_clause",
 });
 
+const C_CFG = cfg({
+  functions: ["function_definition"],
+  branches: ["if_statement", "for_statement", "while_statement", "do_statement", "case_statement", "conditional_expression"],
+  cases: ["case_statement"],
+  nesting: ["if_statement", "for_statement", "while_statement", "do_statement", "switch_statement"],
+  logicalContainers: ["binary_expression"],
+  logicalOps: ["&&", "||"],
+  elseType: "else_clause",
+});
+
+const CPP_CFG = cfg({
+  functions: ["function_definition", "lambda_expression"],
+  branches: ["if_statement", "for_statement", "for_range_loop", "while_statement", "do_statement", "catch_clause", "conditional_expression"],
+  cases: ["case_statement"],
+  nesting: ["if_statement", "for_statement", "for_range_loop", "while_statement", "do_statement", "switch_statement", "try_statement", "lambda_expression"],
+  logicalContainers: ["binary_expression"],
+  logicalOps: ["&&", "||"],
+  elseType: "else_clause",
+});
+
 const CONFIGS: Record<string, LanguageConfig> = {
   typescript: TS_CFG,
   tsx: TS_CFG,
@@ -159,6 +179,8 @@ const CONFIGS: Record<string, LanguageConfig> = {
   java: JAVA_CFG,
   kotlin: KOTLIN_CFG,
   php: PHP_CFG,
+  c: C_CFG,
+  cpp: CPP_CFG,
 };
 
 // ---------------------------------------------------------------------------
@@ -333,6 +355,9 @@ function resolveFunctionName(node: SyntaxNode, config: LanguageConfig, className
   const ident = getChildIdentifier(node);
   if (ident) return className ? `${className}.${ident}` : ident;
 
+  const declName = findDeclaratorName(node);
+  if (declName) return className ? `${className}.${declName}` : declName;
+
   if (node.parent) {
     if (node.parent.type === "variable_declarator") {
       const varName = getChildIdentifier(node.parent);
@@ -347,6 +372,17 @@ function resolveFunctionName(node: SyntaxNode, config: LanguageConfig, className
   }
 
   return `(anonymous:${node.startPosition.row + 1})`;
+}
+
+function findDeclaratorName(node: SyntaxNode): string | null {
+  for (const child of node.children) {
+    if (child.type === "function_declarator") return getChildIdentifier(child);
+    if (child.type === "pointer_declarator" || child.type === "reference_declarator") {
+      const nested = findDeclaratorName(child);
+      if (nested) return nested;
+    }
+  }
+  return null;
 }
 
 function getChildIdentifier(node: SyntaxNode): string | null {

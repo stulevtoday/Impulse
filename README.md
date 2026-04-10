@@ -19,6 +19,8 @@
   <img src="https://img.shields.io/badge/Java-ED8B00?style=flat-square&logo=openjdk&logoColor=white" />
   <img src="https://img.shields.io/badge/Kotlin-7F52FF?style=flat-square&logo=kotlin&logoColor=white" />
   <img src="https://img.shields.io/badge/PHP-777BB4?style=flat-square&logo=php&logoColor=white" />
+  <img src="https://img.shields.io/badge/C-A8B9CC?style=flat-square&logo=c&logoColor=black" />
+  <img src="https://img.shields.io/badge/C++-00599C?style=flat-square&logo=cplusplus&logoColor=white" />
 </p>
 
 ---
@@ -29,7 +31,7 @@ Sound familiar?
 
 **Impulse** sees what you can't — the invisible web of dependencies across your entire codebase. Change a file, and Impulse instantly tells you every other file that could be affected, how deep the impact goes, and which exports are actually used.
 
-8 languages. Zero config. Runs locally. No cloud, no accounts, no telemetry.
+10 languages. Zero config. Runs locally. No cloud, no accounts, no telemetry.
 
 ```
   impulse diff .
@@ -136,6 +138,8 @@ impulse health . --json | jq '.score'
 | **Java** | Package imports, wildcard imports, static imports, public type exports |
 | **Kotlin** | Package imports, wildcard imports, data/sealed/object classes, top-level functions, JVM interop |
 | **PHP** | `use` statements (simple, grouped, aliased), PSR-4 autoloading via `composer.json`, class/interface/trait/enum exports |
+| **C** | `#include "local.h"` resolution (relative + root), `<system.h>` as external, function/struct/typedef/enum exports |
+| **C++** | Everything from C plus class/namespace/template declarations, lambda expressions |
 
 ## Architecture health
 
@@ -247,7 +251,7 @@ impulse coupling . --min-ratio 0.5  # stricter threshold
 
 ## Complexity analysis
 
-Cyclomatic and cognitive complexity for every function, across all 8 languages:
+Cyclomatic and cognitive complexity for every function, across all 10 languages:
 
 ```
   impulse complexity .

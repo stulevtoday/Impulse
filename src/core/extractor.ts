@@ -10,6 +10,7 @@ import { extractCSharpDependencies } from "./csharp-extractor.js";
 import { extractJavaDependencies } from "./java-extractor.js";
 import { extractKotlinDependencies } from "./kotlin-extractor.js";
 import { extractPhpDependencies } from "./php-extractor.js";
+import { extractCDependencies } from "./c-extractor.js";
 
 export type { ExtractionResult, ExtractorContext } from "./types.js";
 
@@ -37,6 +38,9 @@ export function extractDependencies(
   }
   if (parsed.language === "php") {
     return extractPhpDependencies(parsed, ctx);
+  }
+  if (parsed.language === "c" || parsed.language === "cpp") {
+    return extractCDependencies(parsed, ctx);
   }
 
   const nodes: GraphNode[] = [];
