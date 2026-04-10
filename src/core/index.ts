@@ -34,3 +34,5 @@ export { analyzeRisk } from "./risk.js";
 export type { RiskReport, FileRisk, RiskLevel } from "./risk.js";
 export { planDeadExportRemovals, applyRefactorPlan } from "./refactor.js";
 export type { RefactorPlan, RefactorAction, RefactorResult } from "./refactor.js";
+export { runPlugins, discoverPlugins } from "./plugins.js";
+export type { PluginContext, PluginViolation, PluginResult, ImpulsePlugin, AllPluginsResult } from "./plugins.js";

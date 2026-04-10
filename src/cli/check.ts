@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { analyzeProject } from "../core/analyzer.js";
 import { loadConfig } from "../core/config.js";
 import { checkBoundaries } from "../core/boundaries.js";
+import { runPlugins, type AllPluginsResult } from "../core/plugins.js";
 
 export function registerCheckCommand(program: Command): void {
   program
@@ -86,7 +87,48 @@ export function registerCheckCommand(program: Command): void {
       } else {
         console.log(`\n  ${green}✓ All boundaries respected.${reset}\n`);
       }
+
+      const pluginResults = await runPlugins(graph, rootDir);
+      if (pluginResults.pluginsRun > 0) {
+        printPluginResults(pluginResults);
+        if (pluginResults.totalViolations > 0) process.exitCode = 1;
+      }
     });
+}
+
+function printPluginResults(results: AllPluginsResult): void {
+  const dim = "\x1b[2m";
+  const reset = "\x1b[0m";
+  const red = "\x1b[31m";
+  const yellow = "\x1b[33m";
+  const green = "\x1b[32m";
+  const cyan = "\x1b[36m";
+
+  console.log(`  ${cyan}Plugins${reset}  ${results.pluginsRun} loaded\n`);
+
+  for (const r of results.results) {
+    if (r.error) {
+      console.log(`    ${red}✗${reset} ${r.pluginName}  ${red}${r.error}${reset}`);
+      continue;
+    }
+
+    if (r.violations.length === 0) {
+      console.log(`    ${green}✓${reset} ${r.pluginName}  ${dim}(${r.durationMs}ms)${reset}`);
+      continue;
+    }
+
+    console.log(`    ${yellow}⚠${reset} ${r.pluginName}  ${r.violations.length} issue(s)  ${dim}(${r.durationMs}ms)${reset}`);
+    for (const v of r.violations.slice(0, 10)) {
+      const sev = v.severity === "error" ? red : v.severity === "warning" ? yellow : dim;
+      const loc = v.line ? `${v.file}:${v.line}` : v.file;
+      console.log(`      ${sev}${v.severity}${reset} ${loc}  ${v.message}  ${dim}[${v.rule}]${reset}`);
+    }
+    if (r.violations.length > 10) {
+      console.log(`      ${dim}...and ${r.violations.length - 10} more${reset}`);
+    }
+  }
+
+  console.log();
 }
 
 export function registerInitCommand(program: Command): void {

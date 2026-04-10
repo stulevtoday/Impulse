@@ -18,6 +18,7 @@ import { analyzeSafeDelete } from "../core/safe-delete.js";
 import { generateBadgeSVG, type BadgeStyle } from "../core/badge.js";
 import { analyzeComplexity } from "../core/complexity.js";
 import { analyzeRisk } from "../core/risk.js";
+import { runPlugins } from "../core/plugins.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -291,6 +292,8 @@ async function handleDoctor(_q: Q, res: ServerResponse): Promise<void> {
     boundaryData = checkBoundaries(state!.graph, config.boundaries);
   }
 
+  const pluginData = await runPlugins(state!.graph, state!.rootDir);
+
   json(res, 200, {
     health: { score: healthReport.score, grade: healthReport.grade, summary: healthReport.summary, penalties: healthReport.penalties, cycles: healthReport.cycles.length, godFiles: healthReport.godFiles.length },
     hotspots: hotspotsReport.hotspots.filter((h) => h.risk !== "low").slice(0, 10),
@@ -300,6 +303,7 @@ async function handleDoctor(_q: Q, res: ServerResponse): Promise<void> {
     risk: { distribution: riskReport.distribution, topRisks: riskReport.files.filter((f) => f.risk === "critical" || f.risk === "high").slice(0, 10) },
     suggestions: { count: suggestData.suggestions.length, improvement: suggestData.estimatedScoreImprovement, items: suggestData.suggestions },
     boundaries: boundaryData,
+    plugins: pluginData.pluginsRun > 0 ? pluginData : null,
   });
 }
 

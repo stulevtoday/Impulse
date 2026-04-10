@@ -114,6 +114,7 @@ impulse scan .
 | `complexity .` | Cyclomatic + cognitive complexity per function across all files |
 | `risk .` | **Unified risk** — complexity × churn × impact × coupling in one view |
 | `refactor .` | **Auto-refactor** — remove dead exports with `--dry-run` preview |
+| `check .` | Validate boundaries + run **plugins** from `.impulse/plugins/` |
 | `focus file.ts .` | Deep X-ray of a single file |
 | `graph . --format mermaid` | Export dependency graph as **Mermaid**, DOT, or JSON |
 | `badge .` | Generate SVG health badge for your README |
@@ -313,6 +314,33 @@ Files that are high on *multiple* dimensions are the real danger zones.
 impulse risk . --risk critical   # only show critical files
 impulse risk . --json            # machine-readable output
 ```
+
+## Plugins
+
+Add custom rules in `.impulse/plugins/`. Each plugin is a `.js` file that receives the dependency graph and returns violations:
+
+```javascript
+// .impulse/plugins/no-circular-services.js
+export default function(ctx) {
+  const violations = [];
+  for (const edge of ctx.graph.allEdges()) {
+    if (edge.kind !== "imports") continue;
+    const from = edge.from.replace("file:", "");
+    const to = edge.to.replace("file:", "");
+    if (from.includes("/services/") && to.includes("/controllers/")) {
+      violations.push({
+        severity: "error",
+        file: from,
+        message: `Service should not import from controller: ${to}`,
+        rule: "no-service-controller-import",
+      });
+    }
+  }
+  return { violations };
+}
+```
+
+Plugins run automatically with `impulse check` and `impulse doctor`. No config needed — just drop a `.js` file in `.impulse/plugins/`.
 
 ## File focus
 
