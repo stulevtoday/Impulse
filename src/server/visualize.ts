@@ -562,6 +562,9 @@ body {
   </div>
   <div class="header-fill"></div>
   <div class="metrics" id="metrics"></div>
+  <div id="review-badge" style="display:none;padding:4px 12px;border-radius:var(--r);font-size:12px;font-weight:600;letter-spacing:1px;cursor:default">
+    <span id="review-label"></span>
+  </div>
   <div id="health-badge">
     <span id="health-grade">-</span>
     <div>
@@ -621,6 +624,9 @@ body {
     <button class="tab" data-tab="coupling">Coupling</button>
     <button class="tab" data-tab="suggestions">Suggestions</button>
     <button class="tab" data-tab="boundaries">Boundaries</button>
+    <button class="tab" data-tab="risk">Risk</button>
+    <button class="tab" data-tab="owners">Owners</button>
+    <button class="tab" data-tab="secrets">Secrets</button>
     <div class="tab-fill"></div>
     <button id="bottom-toggle" title="Toggle panel">&#9650;</button>
   </div>
@@ -632,6 +638,9 @@ body {
     <div id="pane-coupling" class="tab-pane"></div>
     <div id="pane-suggestions" class="tab-pane"></div>
     <div id="pane-boundaries" class="tab-pane"></div>
+    <div id="pane-risk" class="tab-pane"></div>
+    <div id="pane-owners" class="tab-pane"></div>
+    <div id="pane-secrets" class="tab-pane"></div>
   </div>
 </div>
 
@@ -1179,6 +1188,9 @@ function loadTabIfNeeded(name) {
     case "coupling": loadAndRender(pane, "/coupling", renderCoupling); break;
     case "suggestions": loadAndRender(pane, "/suggest", renderSuggestions); break;
     case "boundaries": loadAndRender(pane, "/check", renderBoundaries); break;
+    case "risk": loadAndRender(pane, "/risk", renderRisk); break;
+    case "owners": loadAndRender(pane, "/owners", renderOwners); break;
+    case "secrets": loadAndRender(pane, "/secrets", renderSecrets); break;
   }
 }
 
@@ -1425,6 +1437,116 @@ function renderBoundaries(pane, data) {
     });
   }
   pane.innerHTML = h;
+}
+
+/* ── Tab: Risk ── */
+function renderRisk(pane, data) {
+  var files = data.files || [];
+  if (files.length === 0) { pane.innerHTML = '<div class="pane-empty">No risk data</div>'; return; }
+  var d = data.distribution || {};
+  var h = '<div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px">';
+  h += '<span style="color:var(--err)">' + (d.critical||0) + ' critical</span>';
+  h += '<span style="color:var(--warn)">' + (d.high||0) + ' high</span>';
+  h += '<span style="color:var(--info)">' + (d.medium||0) + ' medium</span>';
+  h += '<span style="color:var(--t3)">' + (d.low||0) + ' low</span>';
+  h += '</div>';
+  files.slice(0, 20).forEach(function(f) {
+    var pct = Math.min(100, f.score);
+    var color = f.risk === "critical" ? "var(--err)" : f.risk === "high" ? "var(--warn)" : f.risk === "medium" ? "var(--info)" : "var(--t4)";
+    h += '<div style="margin-bottom:8px">';
+    h += '<div class="hs-file" style="font-size:12px;color:var(--t1)">' + esc(f.file) + '</div>';
+    h += '<div class="hs-bar"><div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>';
+    h += '<div style="font-size:11px;color:var(--t3);display:flex;gap:8px;margin-top:2px">';
+    h += '<span class="risk-badge risk-' + f.risk + '">' + f.risk + ' ' + f.score + '</span>';
+    if (f.raw) {
+      h += '<span>comp ' + (f.dimensions?.complexity||0) + '</span>';
+      h += '<span>churn ' + (f.dimensions?.churn||0) + '</span>';
+      h += '<span>impact ' + (f.dimensions?.impact||0) + '</span>';
+      h += '<span>coupling ' + (f.dimensions?.coupling||0) + '</span>';
+    }
+    h += '</div></div>';
+  });
+  pane.innerHTML = h;
+  addFileClickHandlers(pane);
+}
+
+/* ── Tab: Owners ── */
+function renderOwners(pane, data) {
+  var files = data.files || [];
+  var h = '<div style="font-size:12px;margin-bottom:12px">' + data.teamSize + ' author(s) across ' + files.length + ' files</div>';
+  var hot = data.hotBusFactor || [];
+  if (hot.length > 0) {
+    h += '<div style="font-size:12px;font-weight:500;color:var(--t1);margin-bottom:6px">Knowledge Risk (bus factor 1 + high blast radius)</div>';
+    hot.forEach(function(f) {
+      h += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">';
+      h += '<span style="color:var(--err)">&#9888;</span>';
+      h += '<span class="hs-file" style="color:var(--t1)">' + esc(f.file) + '</span>';
+      h += '<span style="color:var(--t3)">bus factor ' + f.busFactor + ' &middot; ' + f.blastRadius + ' dep(s)</span>';
+      h += '</div>';
+    });
+    h += '<div style="height:12px"></div>';
+  }
+  var busiest = data.busiestAuthors || [];
+  if (busiest.length > 0) {
+    h += '<div style="font-size:12px;font-weight:500;color:var(--t1);margin-bottom:6px">Team Distribution</div>';
+    var maxF = busiest[0]?.files || 1;
+    busiest.forEach(function(a) {
+      var pct = Math.round((a.files / maxF) * 100);
+      h += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:12px">';
+      h += '<div style="width:120px;height:6px;background:var(--s2);border-radius:3px;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:var(--ac);border-radius:3px"></div></div>';
+      h += '<span style="color:var(--t1)">' + esc(a.name) + '</span>';
+      h += '<span style="color:var(--t3)">(' + a.files + ' files)</span>';
+      h += '</div>';
+    });
+  }
+  pane.innerHTML = h;
+  addFileClickHandlers(pane);
+}
+
+/* ── Tab: Secrets ── */
+function renderSecrets(pane, data) {
+  var issues = data.issues || [];
+  if (issues.length === 0) {
+    pane.innerHTML = '<div style="color:var(--ok);font-size:12px;padding:8px 0">&#10003; No security issues detected</div>';
+    return;
+  }
+  var h = '<div style="font-size:12px;color:var(--err);margin-bottom:8px">' + issues.length + ' issue(s) found</div>';
+  if (data.framework) h += '<div style="font-size:11px;color:var(--t3);margin-bottom:8px">Framework: ' + esc(data.framework) + '</div>';
+  issues.forEach(function(issue) {
+    var color = issue.severity === "critical" ? "var(--err)" : issue.severity === "warning" ? "var(--warn)" : "var(--t3)";
+    var icon = issue.severity === "critical" ? "&#10007;" : "&#9888;";
+    h += '<div style="display:flex;gap:8px;padding:6px 0;font-size:12px;border-bottom:1px solid var(--s2)">';
+    h += '<span style="color:' + color + '">' + icon + '</span>';
+    h += '<div>';
+    h += '<div style="color:var(--t1)">' + esc(issue.message) + '</div>';
+    h += '<div style="font-size:11px;color:var(--t3)">' + issue.category + (issue.file ? ' &middot; ' + esc(issue.file) : '') + '</div>';
+    h += '</div></div>';
+  });
+  pane.innerHTML = h;
+}
+
+/* ── Review badge ── */
+function updateReviewBadge() {
+  fetch(API + "/review").then(function(r) { return r.json(); }).then(function(data) {
+    var badge = q("#review-badge");
+    var label = q("#review-label");
+    if (!data.verdict) return;
+    var level = data.verdict.level;
+    var colors = { ship: "var(--ok)", review: "var(--warn)", hold: "var(--err)" };
+    var bgColors = { ship: "var(--okbg)", review: "var(--warnbg)", hold: "var(--errbg)" };
+    var icons = { ship: "\\u2713", review: "\\u26A0", hold: "\\u2717" };
+    badge.style.display = "flex";
+    badge.style.alignItems = "center";
+    badge.style.gap = "4px";
+    badge.style.background = bgColors[level] || "var(--s2)";
+    badge.style.color = colors[level] || "var(--t2)";
+    var text = (icons[level] || "") + " " + level.toUpperCase();
+    if (data.changedFiles && data.changedFiles.length > 0) {
+      text += " \\u00B7 " + data.changedFiles.length + " changed";
+    }
+    label.textContent = text;
+    badge.title = data.verdict.reasons ? data.verdict.reasons.join("\\n") : "";
+  }).catch(function() {});
 }
 
 function addFileClickHandlers(container) {
@@ -1687,6 +1809,8 @@ function refreshData() {
     if (state.selectedFile) {
       showDetail(state.selectedFile);
     }
+
+    updateReviewBadge();
   });
 }
 
