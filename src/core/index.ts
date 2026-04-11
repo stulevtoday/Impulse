@@ -42,3 +42,5 @@ export { explainFile, explainProject } from "./explain.js";
 export type { FileExplanation, ProjectExplanation, ExplainSection } from "./explain.js";
 export { analyzeOwnership, getFileOwnership } from "./owners.js";
 export type { OwnershipReport, FileOwnership, Author } from "./owners.js";
+export { analyzeSecrets } from "./secrets.js";
+export type { SecretsReport, SecretIssue, IssueSeverity } from "./secrets.js";

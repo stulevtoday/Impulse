@@ -156,6 +156,12 @@ function printFileRisks(report: ReviewReport): void {
 function printSignals(report: ReviewReport): void {
   let hasSignals = false;
 
+  for (const s of report.secretIssues) {
+    const icon = s.severity === "critical" ? `${red}✗${reset}` : `${yellow}⚠${reset}`;
+    console.log(`  ${icon} ${s.message}`);
+    hasSignals = true;
+  }
+
   for (const c of report.cycles) {
     const short = c.cycle.map((f) => f.split("/").pop()).join(" → ");
     console.log(`  ${yellow}⚠${reset} cycle: ${short}`);

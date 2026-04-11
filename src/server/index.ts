@@ -22,6 +22,7 @@ import { runPlugins } from "../core/plugins.js";
 import { runReview } from "../core/review.js";
 import { explainFile, explainProject } from "../core/explain.js";
 import { analyzeOwnership, getFileOwnership } from "../core/owners.js";
+import { analyzeSecrets } from "../core/secrets.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -329,6 +330,10 @@ async function handleOwners(q: Q, res: ServerResponse): Promise<void> {
   }
 }
 
+async function handleSecrets(_q: Q, res: ServerResponse): Promise<void> {
+  json(res, 200, await analyzeSecrets(state!.graph, state!.rootDir));
+}
+
 async function handleExplain(q: Q, res: ServerResponse): Promise<void> {
   if (q.file) {
     json(res, 200, await explainFile(state!.graph, q.file, state!.rootDir));
@@ -366,6 +371,7 @@ const routes: Record<string, RouteHandler> = {
   "/review": handleReview,
   "/explain": handleExplain,
   "/owners": handleOwners,
+  "/secrets": handleSecrets,
   "/doctor": handleDoctor,
 };
 

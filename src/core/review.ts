@@ -8,6 +8,7 @@ import { findTestTargets } from "./test-targets.js";
 import { runPlugins } from "./plugins.js";
 import { loadConfig } from "./config.js";
 import { parseFile } from "./parser.js";
+import { analyzeSecrets, type SecretIssue } from "./secrets.js";
 import type { DependencyGraph } from "./graph.js";
 import type { RiskLevel } from "./risk.js";
 
@@ -59,6 +60,7 @@ export interface ReviewReport {
     rule: string;
   }>;
   pluginsRun: number;
+  secretIssues: SecretIssue[];
   verdict: ReviewVerdict;
   durationMs: number;
 }
@@ -218,6 +220,10 @@ export async function runReview(
     .filter((v) => changedSet.has(v.file))
     .map((v) => ({ file: v.file, message: v.message, severity: v.severity, rule: v.rule }));
 
+  // Secrets — check for .env leaks and exposed credentials
+  const secretsReport = await analyzeSecrets(graph, rootDir);
+  const secretIssues = secretsReport.issues;
+
   // Verdict
   const verdict = computeVerdict(
     fileReviews,
@@ -225,6 +231,7 @@ export async function runReview(
     boundaryViolations,
     pluginViolations,
     affectedMap.size,
+    secretIssues,
   );
 
   const affected = [...affectedMap.entries()]
@@ -246,6 +253,7 @@ export async function runReview(
     runCommand: testReport.runCommand,
     pluginViolations,
     pluginsRun: pluginReport.pluginsRun,
+    secretIssues,
     verdict,
     durationMs: Math.round(performance.now() - start),
   };
@@ -261,9 +269,16 @@ export function computeVerdict(
   boundaryViolations: ReviewReport["boundaryViolations"],
   pluginViolations: ReviewReport["pluginViolations"],
   totalAffected: number,
+  secretIssues: SecretIssue[] = [],
 ): ReviewVerdict {
   const reasons: string[] = [];
   let level: VerdictLevel = "ship";
+
+  const criticalSecrets = secretIssues.filter((s) => s.severity === "critical");
+  if (criticalSecrets.length > 0) {
+    reasons.push(`${criticalSecrets.length} secret leak(s)`);
+    level = "hold";
+  }
 
   const criticalFiles = files.filter((f) => f.riskLevel === "critical");
   if (criticalFiles.length > 0) {
@@ -280,6 +295,12 @@ export function computeVerdict(
   if (criticalPlugins.length > 0) {
     reasons.push(`${criticalPlugins.length} plugin error(s)`);
     level = "hold";
+  }
+
+  const warningSecrets = secretIssues.filter((s) => s.severity === "warning");
+  if (warningSecrets.length > 0) {
+    reasons.push(`${warningSecrets.length} secret warning(s)`);
+    if (level === "ship") level = "review";
   }
 
   const highFiles = files.filter((f) => f.riskLevel === "high");
@@ -463,7 +484,7 @@ export async function runQuickReview(
       files: fileReviews, cycles, boundaryViolations,
       testTargets: testReport.targets.map((t) => ({ testFile: t.testFile, depth: t.depth, triggeredBy: t.triggeredBy })),
       runCommand: testReport.runCommand,
-      pluginViolations: [], pluginsRun: 0,
+      pluginViolations: [], pluginsRun: 0, secretIssues: [],
       verdict, durationMs: Math.round(performance.now() - start),
     },
     cache: updatedCache,
@@ -531,6 +552,7 @@ function emptyReport(start: number): ReviewReport {
     runCommand: null,
     pluginViolations: [],
     pluginsRun: 0,
+    secretIssues: [],
     verdict: { level: "ship", reasons: ["no changes to review"] },
     durationMs: Math.round(performance.now() - start),
   };

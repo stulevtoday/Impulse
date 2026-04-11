@@ -200,6 +200,17 @@ impulse review . --base main    # compare against a branch
 impulse review . --json         # machine-readable for CI
 ```
 
+## Secret leak detection
+
+Impulse checks for secret leaks automatically — as part of `impulse review` and `impulse doctor`:
+
+- **.env not in .gitignore** — `CRITICAL`: your `.env` file with production secrets will be committed
+- **Client-exposed secrets** — `CRITICAL`: `NEXT_PUBLIC_API_SECRET` with a client prefix is visible in the browser (detects Next.js, Vite, Astro, Nuxt, CRA, Expo)
+- **Weak defaults** — `WARNING`: `JWT_SECRET=changeme` is a placeholder that will reach production
+- **Known credentials** — `WARNING`: `AWS_SECRET_ACCESS_KEY`, `STRIPE_SECRET_KEY` in tracked .env files
+
+When `impulse review` finds a critical secret issue, the verdict is **HOLD** — blocks push via `impulse hook`. Secret patterns are derived from [envtypes](https://github.com/stulevtoday/envtypes).
+
 ## Ownership — who knows this code?
 
 ```bash
@@ -845,6 +856,7 @@ impulse daemon .
 | `/review` | Pre-push review — risk, blast radius, tests, verdict |
 | `/explain?file=path` | Plain-language explanation (file or project) |
 | `/owners?file=path` | Code ownership, bus factor, knowledge risk |
+| `/secrets` | Secret leak detection — .gitignore, client exposure, weak defaults |
 | `/focus?file=path` | Deep analysis of a single file |
 | `/doctor` | Full diagnostic report |
 | `/safe-delete?file=` | Safe deletion analysis with verdict |
@@ -883,7 +895,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-34 commands. 236 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
+34 commands. 243 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
 
 ## License
 
