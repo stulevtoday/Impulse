@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { analyzeProject } from "../core/analyzer.js";
 import { getParseWarnings } from "../core/parser.js";
+import { runQuickReview, type QuickReviewCache, type ReviewReport, type VerdictLevel } from "../core/review.js";
 import { loadEnvFiles, analyzeEnv } from "../core/env.js";
 import { DependencyGraph } from "../core/graph.js";
 import { exportGraph, type ExportFormat } from "../core/export-graph.js";
@@ -220,8 +221,14 @@ program
   .command("watch")
   .description("Watch a project for changes and show impact in real-time")
   .argument("[dir]", "Project root directory", ".")
-  .action(async (dir: string) => {
+  .option("--review", "Show live review verdict after each change")
+  .action(async (dir: string, opts: { review?: boolean }) => {
     const rootDir = resolve(dir);
+    const reviewMode = !!opts.review;
+    const dim = "\x1b[2m";
+    const reset = "\x1b[0m";
+    const bold = "\x1b[1m";
+
     console.log(`\n  Impulse — building initial graph for ${rootDir}...\n`);
 
     const { graph, ctx, stats } = await analyzeProject(rootDir);
@@ -230,44 +237,134 @@ program
       `  Ready. ${stats.filesScanned} files, ${stats.edgeCount} edges (${stats.durationMs}ms)`,
     );
     printWarnings();
-    console.log("  Watching for changes... (Ctrl+C to stop)\n");
+
+    if (reviewMode) {
+      console.log("  Watching with live review... (Ctrl+C to stop)\n");
+    } else {
+      console.log("  Watching for changes... (Ctrl+C to stop)\n");
+    }
+
+    let reviewCache: QuickReviewCache | undefined;
+    let reviewPending = false;
+
+    const runLiveReview = async () => {
+      if (reviewPending) return;
+      reviewPending = true;
+      try {
+        const result = await runQuickReview(graph, rootDir, {}, reviewCache);
+        reviewCache = result.cache;
+        printLiveVerdict(result.report);
+      } catch {
+        // review failed silently — don't break the watcher
+      }
+      reviewPending = false;
+    };
+
+    if (reviewMode) {
+      await runLiveReview();
+    }
 
     createWatcher(rootDir, graph, ctx, {
       onChange(filePath, affected) {
         const time = new Date().toLocaleTimeString();
-        console.log(`  [${time}] Changed: ${filePath}`);
+        console.log(`  ${dim}[${time}]${reset} ${filePath}`);
         if (affected.length > 0) {
-          console.log(`           Impact: ${affected.length} file(s) affected`);
-          for (const f of affected.slice(0, 10)) {
-            console.log(`             → ${f}`);
+          console.log(`           ${affected.length} file(s) affected`);
+          if (!reviewMode) {
+            for (const f of affected.slice(0, 10)) {
+              console.log(`             → ${f}`);
+            }
+            if (affected.length > 10) {
+              console.log(`             ...and ${affected.length - 10} more`);
+            }
           }
-          if (affected.length > 10) {
-            console.log(`             ...and ${affected.length - 10} more`);
-          }
-        } else {
-          console.log("           No dependents affected.");
         }
-        const { nodes, edges } = graph.stats;
-        console.log(`           Graph: ${nodes} nodes, ${edges} edges\n`);
+        if (!reviewMode) {
+          const { nodes, edges } = graph.stats;
+          console.log(`           Graph: ${nodes} nodes, ${edges} edges\n`);
+        } else {
+          // Invalidate complexity cache for the changed file
+          reviewCache?.complexityMap.delete(filePath);
+          runLiveReview();
+        }
       },
       onConfigChange(configFile, rebuildStats) {
         const time = new Date().toLocaleTimeString();
-        console.log(`  [${time}] ⚙ Config changed: ${configFile}`);
+        console.log(`  ${dim}[${time}]${reset} ⚙ Config changed: ${configFile}`);
         console.log(`           Full rebuild: ${rebuildStats.files} files, ${rebuildStats.edges} edges (${rebuildStats.durationMs}ms)\n`);
+        if (reviewMode) {
+          reviewCache = undefined;
+          runLiveReview();
+        }
       },
       onAdd(filePath) {
         const time = new Date().toLocaleTimeString();
-        console.log(`  [${time}] Added: ${filePath}\n`);
+        console.log(`  ${dim}[${time}]${reset} Added: ${filePath}`);
+        if (reviewMode) runLiveReview();
+        else console.log();
       },
       onRemove(filePath) {
         const time = new Date().toLocaleTimeString();
-        console.log(`  [${time}] Removed: ${filePath}\n`);
+        console.log(`  ${dim}[${time}]${reset} Removed: ${filePath}`);
+        if (reviewMode) runLiveReview();
+        else console.log();
       },
       onError(error) {
         console.error(`  Error: ${error.message}`);
       },
     });
   });
+
+function printLiveVerdict(report: ReviewReport): void {
+  const dim = "\x1b[2m";
+  const reset = "\x1b[0m";
+  const bold = "\x1b[1m";
+  const red = "\x1b[31m";
+  const yellow = "\x1b[33m";
+  const green = "\x1b[32m";
+  const cyan = "\x1b[36m";
+
+  const VERDICT_MAP: Record<VerdictLevel, { color: string; icon: string; label: string }> = {
+    ship: { color: green, icon: "✓", label: "SHIP IT" },
+    review: { color: yellow, icon: "⚠", label: "REVIEW" },
+    hold: { color: red, icon: "✗", label: "HOLD" },
+  };
+
+  const RISK_COLORS: Record<string, string> = {
+    critical: red, high: yellow, medium: cyan, low: dim,
+  };
+
+  const v = VERDICT_MAP[report.verdict.level];
+
+  console.log();
+  console.log(`  ${dim}${"─".repeat(54)}${reset}`);
+
+  if (report.changedFiles.length === 0) {
+    console.log(`  ${green}✓  ${bold}SHIP IT${reset}  ${dim}no uncommitted changes${reset}`);
+  } else {
+    const reasons = report.verdict.reasons.join("  ·  ");
+    console.log(`  ${v.color}${v.icon}  ${bold}${v.label}${reset}  ${dim}${report.changedFiles.length} changed → ${report.totalAffected} affected  ·  ${report.durationMs}ms${reset}`);
+
+    for (const f of report.files.slice(0, 5)) {
+      const color = RISK_COLORS[f.riskLevel] ?? dim;
+      console.log(`     ${color}${f.riskLevel.toUpperCase().padEnd(8)}${reset} ${f.file}  ${dim}${f.blastRadius} dep(s)${reset}`);
+    }
+    if (report.files.length > 5) {
+      console.log(`     ${dim}...and ${report.files.length - 5} more${reset}`);
+    }
+
+    if (report.testTargets.length > 0) {
+      console.log(`     ${cyan}⚡ ${report.testTargets.length} test(s) to run${reset}`);
+    }
+
+    if (report.verdict.level !== "ship") {
+      console.log(`     ${dim}${reasons}${reset}`);
+    }
+  }
+
+  console.log(`  ${dim}${"─".repeat(54)}${reset}`);
+  console.log();
+}
 
 program
   .command("env")

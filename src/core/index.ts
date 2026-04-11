@@ -36,5 +36,5 @@ export { planDeadExportRemovals, applyRefactorPlan } from "./refactor.js";
 export type { RefactorPlan, RefactorAction, RefactorResult } from "./refactor.js";
 export { runPlugins, discoverPlugins } from "./plugins.js";
 export type { PluginContext, PluginViolation, PluginResult, ImpulsePlugin, AllPluginsResult } from "./plugins.js";
-export { runReview, computeVerdict } from "./review.js";
-export type { ReviewOptions, ReviewReport, ReviewVerdict, FileReview, VerdictLevel } from "./review.js";
+export { runReview, runQuickReview, computeVerdict } from "./review.js";
+export type { ReviewOptions, ReviewReport, ReviewVerdict, FileReview, VerdictLevel, QuickReviewCache } from "./review.js";

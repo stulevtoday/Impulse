@@ -134,7 +134,7 @@ impulse scan .
 | `compare branch .` | Compare architecture health between branches |
 | `exports .` | Find dead exports nobody imports |
 | `visualize .` | **Live dashboard** in the browser — auto-updates on file changes |
-| `watch .` | Real-time impact on every file save |
+| `watch .` | Real-time impact on every file save (`--review` for live verdict) |
 | `daemon .` | HTTP API for IDE/tool integration |
 | `why A.ts B.ts .` | Show the dependency chain between two files |
 | `explore .` | Interactive terminal REPL |
@@ -197,6 +197,29 @@ impulse review . --staged       # only staged changes
 impulse review . --base main    # compare against a branch
 impulse review . --json         # machine-readable for CI
 ```
+
+## Live review — continuous verdict while you code
+
+```bash
+impulse watch . --review
+```
+
+Every time you save a file, the verdict updates instantly:
+
+```
+  [14:23:15] src/core/graph.ts
+             8 file(s) affected
+
+  ──────────────────────────────────────────────────────
+  ⚠  REVIEW  2 changed → 11 affected  ·  42ms
+     CRITICAL src/core/graph.ts       8 dep(s)
+     MEDIUM   src/core/parser.ts      3 dep(s)
+     ⚡ 4 test(s) to run
+     1 critical-risk file(s)
+  ──────────────────────────────────────────────────────
+```
+
+Uses the warm graph from the watcher — no full rescan on every change. Git churn and coupling data are cached and refreshed every 60 seconds. Verdict computation typically takes 20-50ms after the initial cache warm-up.
 
 ## Git hook — automatic review on push
 
@@ -797,7 +820,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-31 commands. 216 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
+31 commands. 219 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
 
 ## License
 

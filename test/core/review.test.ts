@@ -4,7 +4,8 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
-import { runReview, computeVerdict, type FileReview } from "../../src/core/review.js";
+import { runReview, runQuickReview, computeVerdict, type FileReview } from "../../src/core/review.js";
+import { analyzeProject } from "../../src/core/analyzer.js";
 
 function createTestRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "impulse-review-"));
@@ -174,5 +175,57 @@ describe("computeVerdict", () => {
     );
     assert.equal(v.level, "hold");
     assert.ok(v.reasons.length >= 2);
+  });
+});
+
+describe("runQuickReview", () => {
+  let testDir: string;
+
+  before(() => {
+    testDir = createTestRepo();
+  });
+
+  after(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it("produces same verdict as runReview using warm graph", async () => {
+    const { graph } = await analyzeProject(testDir);
+    const { report } = await runQuickReview(graph, testDir);
+
+    assert.ok(report.changedFiles.includes("utils.ts"));
+    assert.ok(report.totalAffected >= 1);
+    assert.ok(report.durationMs > 0);
+    assert.ok(["ship", "review", "hold"].includes(report.verdict.level));
+  });
+
+  it("returns a reusable cache", async () => {
+    const { graph } = await analyzeProject(testDir);
+    const first = await runQuickReview(graph, testDir);
+
+    assert.ok(first.cache);
+    assert.ok(first.cache.changeCounts instanceof Map);
+    assert.ok(first.cache.lastRefreshMs > 0);
+
+    const second = await runQuickReview(graph, testDir, {}, first.cache);
+    assert.equal(second.report.verdict.level, first.report.verdict.level);
+    assert.ok(second.report.durationMs <= first.report.durationMs + 100);
+  });
+
+  it("returns empty report when no changes", async () => {
+    const cleanDir = mkdtempSync(join(tmpdir(), "impulse-qr-clean-"));
+    execSync("git init", { cwd: cleanDir, stdio: "pipe" });
+    execSync("git config user.email 'test@test.com'", { cwd: cleanDir, stdio: "pipe" });
+    execSync("git config user.name 'Test'", { cwd: cleanDir, stdio: "pipe" });
+    writeFileSync(join(cleanDir, "a.ts"), "export const x = 1;\n");
+    execSync("git add -A && git commit -m 'init'", { cwd: cleanDir, stdio: "pipe" });
+
+    const { graph } = await analyzeProject(cleanDir);
+    const { report } = await runQuickReview(graph, cleanDir);
+
+    assert.equal(report.changedFiles.length, 0);
+    assert.equal(report.verdict.level, "ship");
+
+    rmSync(cleanDir, { recursive: true, force: true });
   });
 });

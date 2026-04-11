@@ -7,6 +7,8 @@ import { checkBoundaries } from "./boundaries.js";
 import { findTestTargets } from "./test-targets.js";
 import { runPlugins } from "./plugins.js";
 import { loadConfig } from "./config.js";
+import { parseFile } from "./parser.js";
+import type { DependencyGraph } from "./graph.js";
 import type { RiskLevel } from "./risk.js";
 
 // ---------------------------------------------------------------------------
@@ -307,6 +309,165 @@ export function computeVerdict(
   }
 
   return { level, reasons };
+}
+
+// ---------------------------------------------------------------------------
+// Quick review — uses a warm graph, caches git data for live watch mode
+// ---------------------------------------------------------------------------
+
+export interface QuickReviewCache {
+  changeCounts: Map<string, number>;
+  couplingByFile: Map<string, number>;
+  complexityMap: Map<string, { max: number; avg: number; fns: number }>;
+  lastRefreshMs: number;
+}
+
+const CACHE_TTL_MS = 60_000;
+
+export async function runQuickReview(
+  graph: DependencyGraph,
+  rootDir: string,
+  opts: ReviewOptions = {},
+  cache?: QuickReviewCache,
+): Promise<{ report: ReviewReport; cache: QuickReviewCache }> {
+  const start = performance.now();
+
+  const changedFiles = getReviewChangedFiles(rootDir, opts);
+  if (changedFiles.length === 0) {
+    const freshCache = cache ?? { changeCounts: new Map(), couplingByFile: new Map(), complexityMap: new Map(), lastRefreshMs: Date.now() };
+    return { report: emptyReport(start), cache: freshCache };
+  }
+
+  const now = Date.now();
+  const stale = !cache || (now - cache.lastRefreshMs > CACHE_TTL_MS);
+  const maxCommits = opts.maxCommits ?? 300;
+
+  let changeCounts: Map<string, number>;
+  let couplingByFile: Map<string, number>;
+  let cxMap: Map<string, { max: number; avg: number; fns: number }>;
+
+  if (stale) {
+    const [cc, coupling] = await Promise.all([
+      Promise.resolve(getChangeFrequencies(rootDir, maxCommits)),
+      Promise.resolve(analyzeCoupling(graph, rootDir, maxCommits, 3, 0.3)),
+    ]);
+    changeCounts = cc;
+    couplingByFile = new Map();
+    for (const pair of coupling.hidden) {
+      couplingByFile.set(pair.fileA, (couplingByFile.get(pair.fileA) ?? 0) + 1);
+      couplingByFile.set(pair.fileB, (couplingByFile.get(pair.fileB) ?? 0) + 1);
+    }
+    cxMap = cache?.complexityMap ?? new Map();
+  } else {
+    changeCounts = cache.changeCounts;
+    couplingByFile = cache.couplingByFile;
+    cxMap = cache.complexityMap;
+  }
+
+  // Parse complexity only for changed files that aren't cached
+  for (const fp of changedFiles) {
+    if (!cxMap.has(fp)) {
+      const parsed = await parseFile(rootDir, fp);
+      if (parsed) {
+        const fns = computeFileComplexity(parsed);
+        if (fns.length > 0) {
+          let maxCog = 0;
+          let totalCog = 0;
+          for (const fn of fns) {
+            totalCog += fn.cognitive;
+            if (fn.cognitive > maxCog) maxCog = fn.cognitive;
+          }
+          cxMap.set(fp, { max: maxCog, avg: fns.length ? Math.round((totalCog / fns.length) * 10) / 10 : 0, fns: fns.length });
+        }
+      }
+    }
+  }
+
+  const changedSet = new Set(changedFiles);
+  const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
+  const filePathSet = new Set(fileNodes.map((n) => n.filePath));
+  const knownChanged = changedFiles.filter((f) => filePathSet.has(f));
+
+  const blastByFile = new Map<string, number>();
+  for (const node of fileNodes) {
+    const impact = graph.analyzeFileImpact(node.filePath);
+    blastByFile.set(node.filePath, impact.affected.filter((a) => a.node.kind === "file").length);
+  }
+
+  const affectedMap = new Map<string, { depth: number; via: string }>();
+  for (const file of knownChanged) {
+    const impact = getFileImpact(graph, file);
+    for (const item of impact.affected) {
+      if (item.node.kind !== "file" || changedSet.has(item.node.filePath)) continue;
+      const existing = affectedMap.get(item.node.filePath);
+      if (!existing || item.depth < existing.depth) {
+        affectedMap.set(item.node.filePath, { depth: item.depth, via: file });
+      }
+    }
+  }
+
+  const maxChanges = Math.max(1, ...Array.from(changeCounts.values()));
+  const maxBlast = Math.max(1, ...Array.from(blastByFile.values()));
+
+  const fileReviews: FileReview[] = [];
+  for (const fp of knownChanged) {
+    const cx = cxMap.get(fp);
+    const changes = changeCounts.get(fp) ?? 0;
+    const blast = blastByFile.get(fp) ?? 0;
+    const hiddenCoup = couplingByFile.get(fp) ?? 0;
+
+    const maxCog = cx?.max ?? 0;
+    const complexityNorm = Math.min(100, maxCog * 4);
+    const churnNorm = Math.min(100, Math.round((changes / maxChanges) * 100));
+    const impactNorm = Math.min(100, Math.round((blast / maxBlast) * 100));
+    const couplingNorm = Math.min(100, hiddenCoup * 33);
+
+    const composite = W_COMPLEXITY * complexityNorm + W_CHURN * churnNorm + W_IMPACT * impactNorm + W_COUPLING * couplingNorm;
+    const peakDim = Math.max(complexityNorm, churnNorm, impactNorm, couplingNorm, 1);
+    const score = Math.round(Math.sqrt((composite / 100) * (peakDim / 100)) * 100);
+
+    fileReviews.push({
+      file: fp, riskScore: score, riskLevel: classifyRisk(score),
+      blastRadius: blast, complexity: maxCog, churn: changes, couplings: hiddenCoup,
+    });
+  }
+  fileReviews.sort((a, b) => b.riskScore - a.riskScore);
+
+  const config = await loadConfig(rootDir);
+  const health = analyzeHealth(graph, config.boundaries);
+  const cycles = health.cycles
+    .filter((c) => c.cycle.some((f) => changedSet.has(f)))
+    .map((c) => ({ cycle: c.cycle, severity: c.severity }));
+
+  let boundaryViolations: ReviewReport["boundaryViolations"] = [];
+  if (config.boundaries && Object.keys(config.boundaries).length > 0) {
+    const bReport = checkBoundaries(graph, config.boundaries);
+    boundaryViolations = bReport.violations.filter((v) => changedSet.has(v.from) || changedSet.has(v.to));
+  }
+
+  const testReport = findTestTargets(graph, changedFiles);
+  const verdict = computeVerdict(fileReviews, cycles, boundaryViolations, [], affectedMap.size);
+
+  const affected = [...affectedMap.entries()]
+    .map(([file, info]) => ({ file, depth: info.depth, via: info.via }))
+    .sort((a, b) => a.depth - b.depth);
+
+  const updatedCache: QuickReviewCache = {
+    changeCounts, couplingByFile, complexityMap: cxMap,
+    lastRefreshMs: stale ? now : cache!.lastRefreshMs,
+  };
+
+  return {
+    report: {
+      changedFiles, affected, totalAffected: affectedMap.size,
+      files: fileReviews, cycles, boundaryViolations,
+      testTargets: testReport.targets.map((t) => ({ testFile: t.testFile, depth: t.depth, triggeredBy: t.triggeredBy })),
+      runCommand: testReport.runCommand,
+      pluginViolations: [], pluginsRun: 0,
+      verdict, durationMs: Math.round(performance.now() - start),
+    },
+    cache: updatedCache,
+  };
 }
 
 // ---------------------------------------------------------------------------
