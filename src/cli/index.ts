@@ -34,6 +34,7 @@ import { registerComplexityCommand } from "./complexity.js";
 import { registerRiskCommand } from "./risk.js";
 import { registerRefactorCommand } from "./refactor.js";
 import { registerReviewCommand } from "./review.js";
+import { registerHookCommand } from "./hook.js";
 import { runDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -351,6 +352,7 @@ registerComplexityCommand(program);
 registerRiskCommand(program);
 registerRefactorCommand(program);
 registerReviewCommand(program);
+registerHookCommand(program);
 
 program
   .command("badge")

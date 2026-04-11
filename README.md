@@ -126,6 +126,7 @@ impulse scan .
 | `impact file.ts .` | "I'm changing this — what breaks?" |
 | `diff .` | Impact of your **uncommitted git changes** |
 | `review .` | **Pre-push verdict** — risk, blast radius, tests, cycles → SHIP / REVIEW / HOLD |
+| `hook install` | Install **pre-push git hook** — blocks push on HOLD verdict |
 | `health .` | Architecture score (0-100) with stability metrics |
 | `doctor .` | **Full diagnostic** — health, hotspots, dead exports, coupling, suggestions in one report |
 | `tree file.ts .` | Dependency tree (like `cargo tree`) — forward or `--reverse` |
@@ -196,6 +197,29 @@ impulse review . --staged       # only staged changes
 impulse review . --base main    # compare against a branch
 impulse review . --json         # machine-readable for CI
 ```
+
+## Git hook — automatic review on push
+
+One command to make `impulse review` run before every push:
+
+```bash
+impulse hook install
+```
+
+Now every `git push` runs `impulse review --staged`. If the verdict is **HOLD**, the push is blocked:
+
+```
+  impulse: push blocked by HOLD verdict
+  Run 'impulse review . --staged' for details
+  Skip with: git push --no-verify
+```
+
+```bash
+impulse hook status      # check if hook is active
+impulse hook uninstall   # remove the hook
+```
+
+The hook calls `npx impulse-analyzer review . --staged` — works even if Impulse isn't installed globally. Safe to commit to the repo (`.git/hooks/` is local).
 
 ## Architecture health
 
@@ -773,7 +797,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-30 commands. 208 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
+31 commands. 216 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
 
 ## License
 

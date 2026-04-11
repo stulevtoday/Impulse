@@ -45,11 +45,14 @@ export function registerReviewCommand(program: Command): void {
 
         if (opts.json) {
           console.log(JSON.stringify(report, null, 2));
+          if (report.verdict.level === "hold") process.exit(1);
           return;
         }
 
         process.stdout.write(`\x1b[K`);
         printReview(report);
+
+        if (report.verdict.level === "hold") process.exit(1);
       },
     );
 }
