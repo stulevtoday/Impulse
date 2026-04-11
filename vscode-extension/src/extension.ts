@@ -1,11 +1,15 @@
 import * as vscode from "vscode";
 import { DaemonClient } from "./daemon-client";
 import { ImpulseCodeLensProvider } from "./codelens-provider";
+import { ImpulseDiagnosticsProvider } from "./diagnostics-provider";
+import { ImpulseHoverProvider } from "./hover-provider";
 import { spawn, type ChildProcess } from "child_process";
 import * as path from "path";
 
 let client: DaemonClient;
 let codeLensProvider: ImpulseCodeLensProvider;
+let diagnosticsProvider: ImpulseDiagnosticsProvider;
+let hoverProvider: ImpulseHoverProvider;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let daemonProcess: ChildProcess | null = null;
@@ -16,6 +20,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   client = new DaemonClient(port);
   codeLensProvider = new ImpulseCodeLensProvider(client);
+  diagnosticsProvider = new ImpulseDiagnosticsProvider(client);
+  hoverProvider = new ImpulseHoverProvider(client);
   outputChannel = vscode.window.createOutputChannel("Impulse");
 
   statusBarItem = vscode.window.createStatusBarItem(
@@ -40,11 +46,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(codeLensSelector, codeLensProvider),
+    vscode.languages.registerHoverProvider(codeLensSelector, hoverProvider),
     vscode.commands.registerCommand("impulse.showImpact", showImpact),
     vscode.commands.registerCommand("impulse.showDependencies", showDependencies),
     vscode.commands.registerCommand("impulse.showDependents", showDependents),
     vscode.commands.registerCommand("impulse.showHealth", showHealth),
+    vscode.commands.registerCommand("impulse.explain", showExplain),
     vscode.commands.registerCommand("impulse.restartDaemon", restartDaemon),
+    diagnosticsProvider,
   );
 
   if (config.get<boolean>("showImpactOnSave", true)) {
@@ -52,6 +61,7 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.workspace.onDidSaveTextDocument((doc) => {
         onFileSave(doc);
         codeLensProvider.refresh();
+        diagnosticsProvider.refresh();
       }),
     );
   }
@@ -59,6 +69,8 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push({ dispose: stopDaemon });
 
   ensureDaemon();
+
+  diagnosticsProvider.startAutoRefresh(30_000);
 
   const statusInterval = setInterval(updateStatusBar, 10_000);
   context.subscriptions.push({ dispose: () => clearInterval(statusInterval) });
@@ -189,9 +201,23 @@ async function updateStatusBar(): Promise<void> {
     }
 
     try {
-      const health = await client.health();
-      statusBarItem.text = `$(pulse) ${health.grade} · ${status.nodes} nodes`;
-      statusBarItem.tooltip = `Impulse: ${health.score}/100 (${health.grade})\n${status.nodes} nodes, ${status.edges} edges\n${health.summary}`;
+      const review = await client.review();
+      const verdictIcons: Record<string, string> = {
+        ship: "$(check)",
+        review: "$(warning)",
+        hold: "$(error)",
+      };
+      const icon = verdictIcons[review.verdict.level] ?? "$(pulse)";
+      const label = review.verdict.level.toUpperCase();
+
+      if (review.changedFiles.length === 0) {
+        const health = await client.health();
+        statusBarItem.text = `$(pulse) ${health.grade} · ${status.nodes} files`;
+        statusBarItem.tooltip = `Impulse: ${health.score}/100 (${health.grade})\n${status.nodes} nodes, ${status.edges} edges\n${health.summary}`;
+      } else {
+        statusBarItem.text = `${icon} ${label} · ${review.changedFiles.length} changed`;
+        statusBarItem.tooltip = `Impulse: ${label}\n${review.changedFiles.length} file(s) changed → ${review.totalAffected} affected\n${review.verdict.reasons.join("\n")}\n\n${review.durationMs}ms`;
+      }
     } catch {
       statusBarItem.text = `$(pulse) ${status.nodes} nodes`;
       statusBarItem.tooltip = `Impulse: ${status.nodes} nodes, ${status.edges} edges`;
@@ -364,6 +390,36 @@ async function showHealth(): Promise<void> {
       for (const gf of report.godFiles) {
         outputChannel.appendLine(`  ${gf.file} — ${gf.importedBy} dependents, ${gf.imports} imports`);
       }
+    }
+
+    outputChannel.show();
+  } catch {
+    vscode.window.showErrorMessage("Impulse daemon not reachable");
+  }
+}
+
+async function showExplain(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  const relPath = editor ? getRelativePath(editor.document) : null;
+
+  try {
+    const result = await client.explain(relPath ?? undefined);
+
+    outputChannel.clear();
+    if (result.file) {
+      outputChannel.appendLine(`Impulse — Explain: ${result.file}\n`);
+    } else {
+      outputChannel.appendLine(`Impulse — Project Explanation\n`);
+    }
+    outputChannel.appendLine(result.summary);
+    outputChannel.appendLine("");
+
+    for (const section of result.sections) {
+      outputChannel.appendLine(`── ${section.heading} ──`);
+      for (const line of section.lines) {
+        outputChannel.appendLine(`  ${line}`);
+      }
+      outputChannel.appendLine("");
     }
 
     outputChannel.show();

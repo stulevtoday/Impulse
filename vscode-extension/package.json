@@ -44,6 +44,10 @@
         "title": "Impulse: Show Project Health"
       },
       {
+        "command": "impulse.explain",
+        "title": "Impulse: Explain Current File"
+      },
+      {
         "command": "impulse.restartDaemon",
         "title": "Impulse: Restart Daemon"
       }

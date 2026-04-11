@@ -27,10 +27,19 @@ export class ImpulseCodeLensProvider implements vscode.CodeLensProvider {
     const lenses: vscode.CodeLens[] = [];
 
     if (focus.blastRadius > 0 || focus.importedBy.length > 0) {
+      let ownershipLabel = "";
+      try {
+        const owners = await this.client.owners(relPath);
+        if (owners.busFactor !== undefined && owners.busFactor > 0) {
+          ownershipLabel = ` · bus factor ${owners.busFactor}`;
+          if (owners.busFactor <= 1) ownershipLabel += " ⚠";
+        }
+      } catch { /* daemon might not have /owners */ }
+
       lenses.push(new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
-        title: `$(pulse) ${focus.importedBy.length} importer(s) · blast radius ${focus.blastRadius}`,
+        title: `$(pulse) ${focus.importedBy.length} importer(s) · blast radius ${focus.blastRadius}${ownershipLabel}`,
         command: "impulse.showImpact",
-        tooltip: `${focus.importedBy.length} files import this module. Changing it can affect ${focus.blastRadius} files.`,
+        tooltip: `${focus.importedBy.length} files import this module. Changing it can affect ${focus.blastRadius} files.${ownershipLabel ? `\nBus factor: ${ownershipLabel.replace(" · bus factor ", "")}` : ""}`,
       }));
     }
 

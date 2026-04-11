@@ -75,6 +75,34 @@ export interface FocusResult {
   lastChanged: string | null;
 }
 
+export interface ReviewResult {
+  changedFiles: string[];
+  totalAffected: number;
+  files: Array<{ file: string; riskScore: number; riskLevel: string; blastRadius: number }>;
+  secretIssues: Array<{ severity: string; category: string; message: string; file?: string; variable?: string }>;
+  verdict: { level: string; reasons: string[] };
+  durationMs: number;
+}
+
+export interface ExplainResult {
+  file?: string;
+  summary: string;
+  sections: Array<{ heading: string; lines: string[] }>;
+}
+
+export interface SecretsResult {
+  issues: Array<{ severity: string; category: string; message: string; file?: string; variable?: string }>;
+  envFilesExposed: string[];
+  framework: string | null;
+}
+
+export interface OwnersResult {
+  file?: string;
+  topAuthors?: Array<{ name: string; commits: number; share: number }>;
+  busFactor?: number;
+  totalAuthors?: number;
+}
+
 export class DaemonClient {
   constructor(private port: number) {}
 
@@ -104,6 +132,24 @@ export class DaemonClient {
 
   async focus(file: string): Promise<FocusResult> {
     return this.get(`/focus?file=${encodeURIComponent(file)}`);
+  }
+
+  async review(): Promise<ReviewResult> {
+    return this.get("/review");
+  }
+
+  async explain(file?: string): Promise<ExplainResult> {
+    const q = file ? `?file=${encodeURIComponent(file)}` : "";
+    return this.get(`/explain${q}`);
+  }
+
+  async secrets(): Promise<SecretsResult> {
+    return this.get("/secrets");
+  }
+
+  async owners(file?: string): Promise<OwnersResult> {
+    const q = file ? `?file=${encodeURIComponent(file)}` : "";
+    return this.get(`/owners${q}`);
   }
 
   async isRunning(): Promise<boolean> {
