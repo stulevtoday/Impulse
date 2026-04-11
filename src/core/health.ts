@@ -146,24 +146,22 @@ function normalizeCycle(cycle: string[]): string[] {
 }
 
 function findGodFiles(graph: DependencyGraph, fileNodes: GraphNode[]): GodFile[] {
-  return fileNodes
-    .map((n) => {
-      const imports = graph.getDependencies(n.id).filter((e) => e.kind === "imports" && !e.to.startsWith("external:")).length;
-      const importedBy = graph.getDependents(n.id).filter((e) => e.kind === "imports").length;
-      return {
-        file: n.filePath,
-        imports,
-        importedBy,
-        totalConnections: imports + importedBy,
-      };
-    })
-    .filter((f) => {
-      const n = fileNodes.length;
-      const godThreshold = Math.max(10, Math.round(n * 0.15));
-      const importThreshold = Math.max(15, Math.round(n * 0.2));
-      const totalThreshold = Math.max(20, Math.round(n * 0.25));
-      return f.importedBy >= godThreshold || f.imports >= importThreshold || f.totalConnections >= totalThreshold;
-    })
+  const all = fileNodes.map((n) => {
+    const imports = graph.getDependencies(n.id).filter((e) => e.kind === "imports" && !e.to.startsWith("external:")).length;
+    const importedBy = graph.getDependents(n.id).filter((e) => e.kind === "imports").length;
+    return { file: n.filePath, imports, importedBy, totalConnections: imports + importedBy };
+  });
+
+  const importedByValues = all.map((f) => f.importedBy).filter((v) => v > 0);
+  const importValues = all.map((f) => f.imports).filter((v) => v > 0);
+  const totalValues = all.map((f) => f.totalConnections).filter((v) => v > 0);
+
+  const ibThreshold = Math.max(10, outlierThreshold(importedByValues));
+  const impThreshold = Math.max(15, outlierThreshold(importValues));
+  const totThreshold = Math.max(20, outlierThreshold(totalValues));
+
+  return all
+    .filter((f) => f.importedBy >= ibThreshold || f.imports >= impThreshold || f.totalConnections >= totThreshold)
     .sort((a, b) => b.totalConnections - a.totalConnections);
 }
 
@@ -257,7 +255,7 @@ function computeScore(
   godFiles: GodFile[],
   deepChains: DepthAnalysis[],
   orphans: string[],
-  stats: { totalFiles: number; maxImportedBy: number },
+  stats: { totalFiles: number; maxImportedBy: number; avgImports: number },
   stability?: StabilityReport,
   complexity?: ComplexityReport,
 ): { score: number; penalties: Penalties } {
@@ -281,23 +279,30 @@ function computeScore(
   }
   penalties.cycles = Math.min(rawCyclePenalty, 50);
 
-  penalties.godFiles = Math.min(godFiles.length * 5, 20);
+  penalties.godFiles = Math.min(godFiles.length * 4, 20);
 
   if (deepChains.length > 0) {
     const maxDepth = deepChains[0].maxDepth;
-    const deepThreshold = Math.max(5, Math.round(Math.log2(stats.totalFiles + 1) * 1.5));
-    if (maxDepth > deepThreshold + 3) penalties.deepChains = 15;
-    else if (maxDepth > deepThreshold) penalties.deepChains = 8;
-    else if (maxDepth > deepThreshold - 2) penalties.deepChains = 3;
+    if (maxDepth >= 5) {
+      const depthPct = stats.totalFiles > 0 ? maxDepth / stats.totalFiles : 0;
+      const avgDepth = deepChains.reduce((s, c) => s + c.maxDepth, 0) / deepChains.length;
+      const depthRatio = avgDepth > 0 ? maxDepth / avgDepth : 1;
+      if ((depthRatio > 2.5 && maxDepth > 8) || depthPct > 0.8) penalties.deepChains = 15;
+      else if (depthRatio > 1.8 || depthPct > 0.5) penalties.deepChains = 8;
+      else if (depthPct > 0.3 || maxDepth > 10) penalties.deepChains = 3;
+    }
   }
 
   const orphanRatio = stats.totalFiles > 0 ? orphans.length / stats.totalFiles : 0;
   if (orphanRatio > 0.3) penalties.orphans = 10;
   else if (orphanRatio > 0.15) penalties.orphans = 5;
 
-  const hubRatio = stats.totalFiles > 0 ? stats.maxImportedBy / stats.totalFiles : 0;
-  if (hubRatio > 0.4 && stats.maxImportedBy >= 15) penalties.hubConcentration = 10;
-  else if (hubRatio > 0.3 && stats.maxImportedBy >= 10) penalties.hubConcentration = 5;
+  if (stats.totalFiles > 0 && stats.maxImportedBy > 0) {
+    const hubShare = stats.maxImportedBy / stats.totalFiles;
+    const avgIB = stats.totalFiles > 0 ? stats.maxImportedBy / Math.max(1, stats.avgImports) : 0;
+    if (hubShare > 0.4 && avgIB > 8) penalties.hubConcentration = 10;
+    else if (hubShare > 0.25 && avgIB > 5) penalties.hubConcentration = 5;
+  }
 
   if (stability && stability.violations.length > 0) {
     penalties.stabilityViolations = Math.min(stability.violations.length * 5, 15);
@@ -358,4 +363,23 @@ function buildSummary(
   }
   if (issues.length === 0) return "No structural issues detected. Clean architecture.";
   return issues.join(", ");
+}
+
+/**
+ * Statistical outlier threshold using IQR (interquartile range).
+ * Returns P75 + 1.5 × IQR, the standard Tukey fence for outlier detection.
+ * Minimum threshold of 5 to avoid flagging trivial values.
+ */
+/**
+ * Statistical outlier threshold using IQR (interquartile range).
+ * P75 + 1.5 × IQR — the standard Tukey fence for outlier detection.
+ * For small samples (< 4 values), returns 0 to defer to the absolute minimum.
+ */
+function outlierThreshold(values: number[]): number {
+  if (values.length < 4) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const q1 = sorted[Math.floor(sorted.length * 0.25)];
+  const q3 = sorted[Math.floor(sorted.length * 0.75)];
+  const iqr = q3 - q1;
+  return Math.ceil(q3 + 1.5 * iqr);
 }
