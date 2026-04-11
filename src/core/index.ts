@@ -38,3 +38,5 @@ export { runPlugins, discoverPlugins } from "./plugins.js";
 export type { PluginContext, PluginViolation, PluginResult, ImpulsePlugin, AllPluginsResult } from "./plugins.js";
 export { runReview, runQuickReview, computeVerdict } from "./review.js";
 export type { ReviewOptions, ReviewReport, ReviewVerdict, FileReview, VerdictLevel, QuickReviewCache } from "./review.js";
+export { explainFile, explainProject } from "./explain.js";
+export type { FileExplanation, ProjectExplanation, ExplainSection } from "./explain.js";

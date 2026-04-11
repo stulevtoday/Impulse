@@ -126,6 +126,7 @@ impulse scan .
 | `impact file.ts .` | "I'm changing this — what breaks?" |
 | `diff .` | Impact of your **uncommitted git changes** |
 | `review .` | **Pre-push verdict** — risk, blast radius, tests, cycles → SHIP / REVIEW / HOLD |
+| `explain file.ts .` | **Plain-language explanation** of a file or project — why it matters, what's risky |
 | `hook install` | Install **pre-push git hook** — blocks push on HOLD verdict |
 | `health .` | Architecture score (0-100) with stability metrics |
 | `doctor .` | **Full diagnostic** — health, hotspots, dead exports, coupling, suggestions in one report |
@@ -197,6 +198,41 @@ impulse review . --staged       # only staged changes
 impulse review . --base main    # compare against a branch
 impulse review . --json         # machine-readable for CI
 ```
+
+## Explain — understand any file in 10 seconds
+
+```bash
+impulse explain src/core/graph.ts .
+```
+
+```
+  Impulse — Explain
+
+  src/core/graph.ts
+  src/core/graph.ts is a hub — 43 files import it, making it one of
+  the most connected files in the project.
+
+  Blast radius
+  Changes here can affect 62 file(s) — 55% of the codebase.
+  Impact chain: 36 direct, 26 at depth 2.
+  This is a large blast radius. Test changes thoroughly before pushing.
+
+  Complexity
+  Most complex function: analyzeExportImpact (cognitive complexity 28, 62 lines).
+  This is alarming complexity. Consider breaking it into smaller functions.
+  20 functions total, 13 are simple (cognitive <= 4).
+
+  Hidden coupling
+  src/core/extractor.ts (38% co-change rate, 3 co-commits, no import).
+  These files change together but aren't connected via imports.
+
+  Tests
+  17 test file(s) cover this file.
+```
+
+For the whole project: `impulse explain .` — project-level narrative with core files, hotspots, coupling, and action items.
+
+All data comes from existing analyses (focus, risk, coupling, complexity) — explain just tells the story in plain language.
 
 ## Live review — continuous verdict while you code
 
@@ -782,6 +818,7 @@ impulse daemon .
 | `/complexity` | Cyclomatic + cognitive complexity per function |
 | `/risk` | Unified risk analysis (complexity × churn × impact × coupling) |
 | `/review` | Pre-push review — risk, blast radius, tests, verdict |
+| `/explain?file=path` | Plain-language explanation (file or project) |
 | `/focus?file=path` | Deep analysis of a single file |
 | `/doctor` | Full diagnostic report |
 | `/safe-delete?file=` | Safe deletion analysis with verdict |
@@ -820,7 +857,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-31 commands. 219 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
+32 commands. 228 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
 
 ## License
 

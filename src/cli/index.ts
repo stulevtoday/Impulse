@@ -36,6 +36,7 @@ import { registerRiskCommand } from "./risk.js";
 import { registerRefactorCommand } from "./refactor.js";
 import { registerReviewCommand } from "./review.js";
 import { registerHookCommand } from "./hook.js";
+import { registerExplainCommand } from "./explain.js";
 import { runDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -450,6 +451,7 @@ registerRiskCommand(program);
 registerRefactorCommand(program);
 registerReviewCommand(program);
 registerHookCommand(program);
+registerExplainCommand(program);
 
 program
   .command("badge")

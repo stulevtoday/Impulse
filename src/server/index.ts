@@ -20,6 +20,7 @@ import { analyzeComplexity } from "../core/complexity.js";
 import { analyzeRisk } from "../core/risk.js";
 import { runPlugins } from "../core/plugins.js";
 import { runReview } from "../core/review.js";
+import { explainFile, explainProject } from "../core/explain.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -318,6 +319,14 @@ async function handleReview(q: Q, res: ServerResponse): Promise<void> {
   json(res, 200, report);
 }
 
+async function handleExplain(q: Q, res: ServerResponse): Promise<void> {
+  if (q.file) {
+    json(res, 200, await explainFile(state!.graph, q.file, state!.rootDir));
+  } else {
+    json(res, 200, await explainProject(state!.graph, state!.rootDir));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -345,6 +354,7 @@ const routes: Record<string, RouteHandler> = {
   "/complexity": handleComplexity,
   "/risk": handleRisk,
   "/review": handleReview,
+  "/explain": handleExplain,
   "/doctor": handleDoctor,
 };
 
