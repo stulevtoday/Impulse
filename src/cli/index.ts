@@ -38,6 +38,7 @@ import { registerReviewCommand } from "./review.js";
 import { registerHookCommand } from "./hook.js";
 import { registerExplainCommand } from "./explain.js";
 import { registerOwnersCommand } from "./owners.js";
+import { registerChangelogCommand } from "./changelog.js";
 import { runDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -454,6 +455,7 @@ registerReviewCommand(program);
 registerHookCommand(program);
 registerExplainCommand(program);
 registerOwnersCommand(program);
+registerChangelogCommand(program);
 
 program
   .command("badge")

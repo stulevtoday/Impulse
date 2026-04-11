@@ -44,3 +44,5 @@ export { analyzeOwnership, getFileOwnership } from "./owners.js";
 export type { OwnershipReport, FileOwnership, Author } from "./owners.js";
 export { analyzeSecrets } from "./secrets.js";
 export type { SecretsReport, SecretIssue, IssueSeverity } from "./secrets.js";
+export { generateChangelog } from "./changelog.js";
+export type { ChangelogReport, ChangelogCommit, ChangelogModule, BreakingChange } from "./changelog.js";

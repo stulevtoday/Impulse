@@ -126,6 +126,7 @@ impulse scan .
 | `impact file.ts .` | "I'm changing this — what breaks?" |
 | `diff .` | Impact of your **uncommitted git changes** |
 | `review .` | **Pre-push verdict** — risk, blast radius, tests, cycles → SHIP / REVIEW / HOLD |
+| `changelog base .` | **Semantic changelog** — impact by module, breaking changes, blast radius |
 | `owners file.ts .` | **Code ownership** — who knows this file, bus factor, knowledge risk |
 | `explain file.ts .` | **Plain-language explanation** of a file or project — why it matters, what's risky |
 | `hook install` | Install **pre-push git hook** — blocks push on HOLD verdict |
@@ -855,6 +856,7 @@ impulse daemon .
 | `/risk` | Unified risk analysis (complexity × churn × impact × coupling) |
 | `/review` | Pre-push review — risk, blast radius, tests, verdict |
 | `/explain?file=path` | Plain-language explanation (file or project) |
+| `/changelog?base=ref` | Semantic changelog with impact by module |
 | `/owners?file=path` | Code ownership, bus factor, knowledge risk |
 | `/secrets` | Secret leak detection — .gitignore, client exposure, weak defaults |
 | `/focus?file=path` | Deep analysis of a single file |
@@ -895,7 +897,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-34 commands. 243 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
+35 commands. 249 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
 
 ## License
 

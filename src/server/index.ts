@@ -23,6 +23,7 @@ import { runReview } from "../core/review.js";
 import { explainFile, explainProject } from "../core/explain.js";
 import { analyzeOwnership, getFileOwnership } from "../core/owners.js";
 import { analyzeSecrets } from "../core/secrets.js";
+import { generateChangelog } from "../core/changelog.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -330,6 +331,12 @@ async function handleOwners(q: Q, res: ServerResponse): Promise<void> {
   }
 }
 
+async function handleChangelog(q: Q, res: ServerResponse): Promise<void> {
+  const base = q.base ?? "HEAD~10";
+  const head = q.head ?? "HEAD";
+  json(res, 200, generateChangelog(state!.graph, state!.rootDir, base, head));
+}
+
 async function handleSecrets(_q: Q, res: ServerResponse): Promise<void> {
   json(res, 200, await analyzeSecrets(state!.graph, state!.rootDir));
 }
@@ -371,6 +378,7 @@ const routes: Record<string, RouteHandler> = {
   "/review": handleReview,
   "/explain": handleExplain,
   "/owners": handleOwners,
+  "/changelog": handleChangelog,
   "/secrets": handleSecrets,
   "/doctor": handleDoctor,
 };
