@@ -19,6 +19,7 @@ import { generateBadgeSVG, type BadgeStyle } from "../core/badge.js";
 import { analyzeComplexity } from "../core/complexity.js";
 import { analyzeRisk } from "../core/risk.js";
 import { runPlugins } from "../core/plugins.js";
+import { runReview } from "../core/review.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -307,6 +308,16 @@ async function handleDoctor(_q: Q, res: ServerResponse): Promise<void> {
   });
 }
 
+async function handleReview(q: Q, res: ServerResponse): Promise<void> {
+  const maxCommits = parseInt(q.commits ?? "300", 10);
+  const report = await runReview(state!.rootDir, {
+    staged: q.staged === "true",
+    base: q.base,
+    maxCommits,
+  });
+  json(res, 200, report);
+}
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -333,6 +344,7 @@ const routes: Record<string, RouteHandler> = {
   "/badge": handleBadge,
   "/complexity": handleComplexity,
   "/risk": handleRisk,
+  "/review": handleReview,
   "/doctor": handleDoctor,
 };
 

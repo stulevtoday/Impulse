@@ -35,6 +35,12 @@ export async function runDashboard(): Promise<void> {
     else if (ext === ".go") langSet.add("Go");
     else if (ext === ".rs") langSet.add("Rust");
     else if (ext === ".cs") langSet.add("C#");
+    else if (ext === ".java") langSet.add("Java");
+    else if (ext === ".kt" || ext === ".kts") langSet.add("Kotlin");
+    else if (ext === ".php") langSet.add("PHP");
+    else if (ext === ".c") langSet.add("C");
+    else if ([".cpp", ".hpp", ".cc", ".cxx", ".hxx"].includes(ext)) langSet.add("C++");
+    else if (ext === ".h") { langSet.add("C"); }
   }
   const langs = [...langSet].join(" + ") || "unknown";
 
@@ -109,6 +115,7 @@ export async function runDashboard(): Promise<void> {
 
   console.log(`\n  ${dim}Try:${reset}`);
   if (changedFiles.length > 0) {
+    console.log(`    ${bold}impulse review .${reset}              ${dim}pre-push review with verdict${reset}`);
     console.log(`    ${bold}impulse diff .${reset}                ${dim}full impact of your changes${reset}`);
     console.log(`    ${bold}impulse test .${reset}                ${dim}which tests to run${reset}`);
   }

@@ -5,7 +5,7 @@
   <em>Know what breaks before it breaks.</em>
   <br>
   <br>
-  <img src="https://img.shields.io/badge/languages-8-5b7fff?style=flat-square" />
+  <img src="https://img.shields.io/badge/languages-10-5b7fff?style=flat-square" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-4ade80?style=flat-square&logo=node.js&logoColor=white" />
   <img src="https://img.shields.io/badge/license-MIT-888?style=flat-square" />
   <img src="https://img.shields.io/badge/built_by-an_AI_named_Pulse-ff6b8a?style=flat-square" />
@@ -79,6 +79,38 @@ npx impulse-analyzer visualize .
 
 Your browser opens. You see your entire project as a living, breathing graph. Click a file — a ripple wave shows you exactly how far your change would travel.
 
+Before you push:
+
+```bash
+npx impulse-analyzer review .
+```
+
+```
+  Impulse — Review  (343ms)
+
+  3 file(s) changed → 12 in blast radius
+
+  src/core/graph.ts
+    ██████████████████░░░░  72 CRITICAL  ·  8 dependent(s)
+    complexity 18  ·  churn 23  ·  2 hidden coupling(s)
+
+  src/cli/dashboard.ts
+    ████████░░░░░░░░░░░░░░  35 MEDIUM  ·  1 dependent(s)
+    complexity 12
+
+  Tests (4)
+    ⚡ test/core/graph.test.ts     (direct)
+    ⚡ test/core/health.test.ts    (depth 2)
+
+    node --test 'test/core/graph.test.ts' ...
+
+  ──────────────────────────────────────────────────
+  ⚠  REVIEW  1 critical-risk file(s)  ·  large blast radius
+  ──────────────────────────────────────────────────
+```
+
+Six analyses in one pass: blast radius, risk scoring (complexity × churn × impact × coupling), dependency cycles, boundary violations, test targeting, and custom plugins. One verdict: **SHIP IT**, **REVIEW**, or **HOLD**.
+
 ### Install globally
 
 ```bash
@@ -93,6 +125,7 @@ impulse scan .
 | `scan .` | Build dependency graph, show stats |
 | `impact file.ts .` | "I'm changing this — what breaks?" |
 | `diff .` | Impact of your **uncommitted git changes** |
+| `review .` | **Pre-push verdict** — risk, blast radius, tests, cycles → SHIP / REVIEW / HOLD |
 | `health .` | Architecture score (0-100) with stability metrics |
 | `doctor .` | **Full diagnostic** — health, hotspots, dead exports, coupling, suggestions in one report |
 | `tree file.ts .` | Dependency tree (like `cargo tree`) — forward or `--reverse` |
@@ -114,7 +147,6 @@ impulse scan .
 | `complexity .` | Cyclomatic + cognitive complexity per function across all files |
 | `risk .` | **Unified risk** — complexity × churn × impact × coupling in one view |
 | `refactor .` | **Auto-refactor** — remove dead exports with `--dry-run` preview |
-| `check .` | Validate boundaries + run **plugins** from `.impulse/plugins/` |
 | `focus file.ts .` | Deep X-ray of a single file |
 | `graph . --format mermaid` | Export dependency graph as **Mermaid**, DOT, or JSON |
 | `badge .` | Generate SVG health badge for your README |
@@ -141,6 +173,29 @@ impulse health . --json | jq '.score'
 | **PHP** | `use` statements (simple, grouped, aliased), PSR-4 autoloading via `composer.json`, class/interface/trait/enum exports |
 | **C** | `#include "local.h"` resolution (relative + root), `<system.h>` as external, function/struct/typedef/enum exports |
 | **C++** | Everything from C plus class/namespace/template declarations, lambda expressions |
+
+## Pre-push review
+
+`impulse review` is the command you run before every push. It combines six analyses into one verdict — no need to run them individually:
+
+1. **Blast radius** of every changed file
+2. **Risk score** (complexity × churn × impact × coupling) per file
+3. **Dependency cycles** involving your changes
+4. **Boundary violations** from your changes
+5. **Test targets** — which tests to run, with the command
+6. **Plugin rules** — custom violations from `.impulse/plugins/`
+
+Verdicts:
+- **SHIP IT** — all clear, push with confidence
+- **REVIEW** — high-risk files, boundary violations, or large blast radius
+- **HOLD** — critical-risk files, dependency cycles, or plugin errors
+
+```bash
+impulse review .                # review uncommitted changes
+impulse review . --staged       # only staged changes
+impulse review . --base main    # compare against a branch
+impulse review . --json         # machine-readable for CI
+```
 
 ## Architecture health
 
@@ -679,6 +734,7 @@ impulse daemon .
 | `/coupling` | Temporal coupling analysis |
 | `/complexity` | Cyclomatic + cognitive complexity per function |
 | `/risk` | Unified risk analysis (complexity × churn × impact × coupling) |
+| `/review` | Pre-push review — risk, blast radius, tests, verdict |
 | `/focus?file=path` | Deep analysis of a single file |
 | `/doctor` | Full diagnostic report |
 | `/safe-delete?file=` | Safe deletion analysis with verdict |
@@ -717,7 +773,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-28 commands. 119 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
+30 commands. 208 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
 
 ## License
 
