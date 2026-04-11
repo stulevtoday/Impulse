@@ -126,6 +126,7 @@ impulse scan .
 | `impact file.ts .` | "I'm changing this — what breaks?" |
 | `diff .` | Impact of your **uncommitted git changes** |
 | `review .` | **Pre-push verdict** — risk, blast radius, tests, cycles → SHIP / REVIEW / HOLD |
+| `owners file.ts .` | **Code ownership** — who knows this file, bus factor, knowledge risk |
 | `explain file.ts .` | **Plain-language explanation** of a file or project — why it matters, what's risky |
 | `hook install` | Install **pre-push git hook** — blocks push on HOLD verdict |
 | `health .` | Architecture score (0-100) with stability metrics |
@@ -198,6 +199,30 @@ impulse review . --staged       # only staged changes
 impulse review . --base main    # compare against a branch
 impulse review . --json         # machine-readable for CI
 ```
+
+## Ownership — who knows this code?
+
+```bash
+impulse owners src/core/graph.ts .
+```
+
+```
+  Impulse — Ownership
+
+  src/core/graph.ts
+
+  Bus factor: 1  ·  2 author(s)
+
+  ██████████████████░░   88%  stulevtoday  (7 commits)
+  ███░░░░░░░░░░░░░░░░░   13%  Dani  (1 commits)
+
+  ⚠  Single-author file. Knowledge is concentrated in one person.
+     If they leave, this file has no backup expert.
+```
+
+For the whole project: `impulse owners .` — shows knowledge risk (bus factor 1 + high blast radius), team distribution, and files where expertise is fragile.
+
+**Bus factor**: minimum authors whose commits account for 50%+ of the file's history. Bus factor 1 means one person leaves and the file has no expert.
 
 ## Explain — understand any file in 10 seconds
 
@@ -819,6 +844,7 @@ impulse daemon .
 | `/risk` | Unified risk analysis (complexity × churn × impact × coupling) |
 | `/review` | Pre-push review — risk, blast radius, tests, verdict |
 | `/explain?file=path` | Plain-language explanation (file or project) |
+| `/owners?file=path` | Code ownership, bus factor, knowledge risk |
 | `/focus?file=path` | Deep analysis of a single file |
 | `/doctor` | Full diagnostic report |
 | `/safe-delete?file=` | Safe deletion analysis with verdict |
@@ -857,7 +883,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-32 commands. 228 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
+34 commands. 236 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
 
 ## License
 

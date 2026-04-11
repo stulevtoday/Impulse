@@ -7,6 +7,7 @@ import { generateSuggestions, type Suggestion } from "./suggest.js";
 import { loadConfig } from "./config.js";
 import { computeFileComplexity } from "./complexity.js";
 import { parseFile } from "./parser.js";
+import { getFileOwnership } from "./owners.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -180,6 +181,31 @@ export async function explainFile(
       heading: "Tests",
       lines: ["No test files cover this file. Given its blast radius, adding tests would reduce risk."],
     });
+  }
+
+  // Ownership (third dimension)
+  const ownership = getFileOwnership(rootDir, filePath, maxCommits);
+  if (ownership.topAuthors.length > 0) {
+    const ownLines: string[] = [];
+    const topAuthor = ownership.topAuthors[0];
+    const pct = Math.round(topAuthor.share * 100);
+
+    if (ownership.busFactor <= 1) {
+      ownLines.push(
+        `Single owner: ${topAuthor.name} (${pct}% of commits). Bus factor: 1.`,
+      );
+      if (focus.blastRadius >= 5) {
+        ownLines.push("This file has high blast radius AND a single expert. If they leave, no one can safely modify it.");
+      } else {
+        ownLines.push("Knowledge is concentrated in one person. Consider pair reviews to spread expertise.");
+      }
+    } else {
+      const names = ownership.topAuthors.slice(0, 3).map((a) => `${a.name} (${Math.round(a.share * 100)}%)`);
+      ownLines.push(`${ownership.totalAuthors} author(s): ${names.join(", ")}${ownership.totalAuthors > 3 ? "..." : ""}.`);
+      ownLines.push(`Bus factor: ${ownership.busFactor}. Knowledge is distributed.`);
+    }
+
+    sections.push({ heading: "Ownership", lines: ownLines });
   }
 
   return { file: filePath, summary, sections };

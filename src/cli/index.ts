@@ -37,6 +37,7 @@ import { registerRefactorCommand } from "./refactor.js";
 import { registerReviewCommand } from "./review.js";
 import { registerHookCommand } from "./hook.js";
 import { registerExplainCommand } from "./explain.js";
+import { registerOwnersCommand } from "./owners.js";
 import { runDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -452,6 +453,7 @@ registerRefactorCommand(program);
 registerReviewCommand(program);
 registerHookCommand(program);
 registerExplainCommand(program);
+registerOwnersCommand(program);
 
 program
   .command("badge")

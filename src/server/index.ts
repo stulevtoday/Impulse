@@ -21,6 +21,7 @@ import { analyzeRisk } from "../core/risk.js";
 import { runPlugins } from "../core/plugins.js";
 import { runReview } from "../core/review.js";
 import { explainFile, explainProject } from "../core/explain.js";
+import { analyzeOwnership, getFileOwnership } from "../core/owners.js";
 import type { DependencyGraph } from "../core/graph.js";
 import type { ExtractorContext } from "../core/extractor.js";
 
@@ -319,6 +320,15 @@ async function handleReview(q: Q, res: ServerResponse): Promise<void> {
   json(res, 200, report);
 }
 
+async function handleOwners(q: Q, res: ServerResponse): Promise<void> {
+  const maxCommits = parseInt(q.commits ?? "500", 10);
+  if (q.file) {
+    json(res, 200, getFileOwnership(state!.rootDir, q.file, maxCommits));
+  } else {
+    json(res, 200, analyzeOwnership(state!.graph, state!.rootDir, maxCommits));
+  }
+}
+
 async function handleExplain(q: Q, res: ServerResponse): Promise<void> {
   if (q.file) {
     json(res, 200, await explainFile(state!.graph, q.file, state!.rootDir));
@@ -355,6 +365,7 @@ const routes: Record<string, RouteHandler> = {
   "/risk": handleRisk,
   "/review": handleReview,
   "/explain": handleExplain,
+  "/owners": handleOwners,
   "/doctor": handleDoctor,
 };
 
