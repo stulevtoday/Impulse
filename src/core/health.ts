@@ -157,7 +157,13 @@ function findGodFiles(graph: DependencyGraph, fileNodes: GraphNode[]): GodFile[]
         totalConnections: imports + importedBy,
       };
     })
-    .filter((f) => f.importedBy >= 10 || f.imports >= 15 || f.totalConnections >= 20)
+    .filter((f) => {
+      const n = fileNodes.length;
+      const godThreshold = Math.max(10, Math.round(n * 0.15));
+      const importThreshold = Math.max(15, Math.round(n * 0.2));
+      const totalThreshold = Math.max(20, Math.round(n * 0.25));
+      return f.importedBy >= godThreshold || f.imports >= importThreshold || f.totalConnections >= totalThreshold;
+    })
     .sort((a, b) => b.totalConnections - a.totalConnections);
 }
 
@@ -279,17 +285,19 @@ function computeScore(
 
   if (deepChains.length > 0) {
     const maxDepth = deepChains[0].maxDepth;
-    if (maxDepth > 8) penalties.deepChains = 15;
-    else if (maxDepth > 5) penalties.deepChains = 8;
-    else if (maxDepth > 3) penalties.deepChains = 3;
+    const deepThreshold = Math.max(5, Math.round(Math.log2(stats.totalFiles + 1) * 1.5));
+    if (maxDepth > deepThreshold + 3) penalties.deepChains = 15;
+    else if (maxDepth > deepThreshold) penalties.deepChains = 8;
+    else if (maxDepth > deepThreshold - 2) penalties.deepChains = 3;
   }
 
   const orphanRatio = stats.totalFiles > 0 ? orphans.length / stats.totalFiles : 0;
   if (orphanRatio > 0.3) penalties.orphans = 10;
   else if (orphanRatio > 0.15) penalties.orphans = 5;
 
-  if (stats.maxImportedBy > 30) penalties.hubConcentration = 10;
-  else if (stats.maxImportedBy > 20) penalties.hubConcentration = 5;
+  const hubRatio = stats.totalFiles > 0 ? stats.maxImportedBy / stats.totalFiles : 0;
+  if (hubRatio > 0.4 && stats.maxImportedBy >= 15) penalties.hubConcentration = 10;
+  else if (hubRatio > 0.3 && stats.maxImportedBy >= 10) penalties.hubConcentration = 5;
 
   if (stability && stability.violations.length > 0) {
     penalties.stabilityViolations = Math.min(stability.violations.length * 5, 15);
