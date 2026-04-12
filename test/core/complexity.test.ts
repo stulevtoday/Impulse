@@ -42,9 +42,9 @@ describe("computeFileComplexity", () => {
         assert.ok(detectCycles.cognitive > 0, "detectCycles should have cognitive complexity");
       }
 
-      const computeScore = fns.find((f) => f.name === "computeScore");
-      if (computeScore) {
-        assert.ok(computeScore.cyclomatic >= 5, "computeScore should have many branches (switch cases)");
+      const penaltyFn = fns.find((f) => f.name === "penalizeDeepChains" || f.name === "penalizeComplexity");
+      if (penaltyFn) {
+        assert.ok(penaltyFn.cyclomatic >= 2, "penalty functions should have branches");
       }
     });
 

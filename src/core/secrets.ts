@@ -87,117 +87,25 @@ export async function analyzeSecrets(
   rootDir: string,
 ): Promise<SecretsReport> {
   const start = performance.now();
-  const issues: SecretIssue[] = [];
 
   const framework = await detectFramework(rootDir);
   const clientPrefix = framework
     ? FRAMEWORKS.find((f) => f.name === framework)?.clientPrefix ?? null
     : null;
 
-  // 1. .gitignore audit
-  const envFiles = [".env", ".env.local", ".env.development", ".env.staging", ".env.production", ".env.test"];
-  const presentEnvFiles: string[] = [];
-  for (const f of envFiles) {
-    if (existsSync(join(rootDir, f))) presentEnvFiles.push(f);
-  }
-
+  const presentEnvFiles = findEnvFiles(rootDir);
   const gitignorePatterns = await loadGitignorePatterns(rootDir);
-  const envFilesIgnored: string[] = [];
-  const envFilesExposed: string[] = [];
+  const { ignored: envFilesIgnored, exposed: envFilesExposed, issues: gitignoreIssues } = auditGitignore(presentEnvFiles, gitignorePatterns);
 
-  for (const f of presentEnvFiles) {
-    if (isIgnored(f, gitignorePatterns)) {
-      envFilesIgnored.push(f);
-    } else {
-      envFilesExposed.push(f);
-      if (f !== ".env.example") {
-        issues.push({
-          severity: "critical",
-          category: "gitignore",
-          message: `${f} exists but is NOT in .gitignore — secrets may be committed to git`,
-          file: f,
-        });
-      }
-    }
-  }
-
-  // 2. Parse .env files for weak defaults and known secrets
   const envDefs = await loadEnvFiles(rootDir);
   const envValues = await loadEnvValues(rootDir, presentEnvFiles);
 
-  for (const [varName, value] of envValues) {
-    if (isSecretName(varName) && value && WEAK_DEFAULTS.has(value.toLowerCase())) {
-      issues.push({
-        severity: "warning",
-        category: "weak-default",
-        message: `${varName} has a weak or placeholder default value "${value}"`,
-        variable: varName,
-      });
-    }
-  }
-
-  // 3. Client exposure detection
-  if (clientPrefix) {
-    const envNodes = graph.allNodes().filter((n) => n.kind === "env_var");
-    for (const node of envNodes) {
-      if (node.name.startsWith(clientPrefix) && isSecretName(node.name)) {
-        issues.push({
-          severity: "critical",
-          category: "client-exposed",
-          message: `${node.name} is client-exposed (${clientPrefix} prefix) but contains a secret pattern`,
-          file: node.filePath,
-          variable: node.name,
-        });
-      }
-    }
-
-    for (const [varName] of envDefs) {
-      if (varName.startsWith(clientPrefix) && isSecretName(varName)) {
-        const alreadyReported = issues.some(
-          (i) => i.variable === varName && i.category === "client-exposed",
-        );
-        if (!alreadyReported) {
-          issues.push({
-            severity: "critical",
-            category: "client-exposed",
-            message: `${varName} is client-exposed (${clientPrefix} prefix) but contains a secret pattern`,
-            variable: varName,
-          });
-        }
-      }
-    }
-  }
-
-  // 4. Known credential patterns in env definitions
-  for (const [varName] of envDefs) {
-    if (KNOWN_SECRETS.has(varName)) {
-      const inGitignore = presentEnvFiles.every(
-        (f) => envDefs.get(varName)?.includes(f) ? isIgnored(f, gitignorePatterns) : true,
-      );
-      if (!inGitignore) {
-        issues.push({
-          severity: "warning",
-          category: "known-credential",
-          message: `${varName} is a known credential and may be in a tracked .env file`,
-          variable: varName,
-        });
-      }
-    }
-  }
-
-  // 5. Hardcoded secrets in source code (simple heuristic)
-  const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
-  for (const node of fileNodes) {
-    const envVarsInFile = graph
-      .allNodes()
-      .filter((n) => n.kind === "env_var" && n.filePath === node.filePath);
-
-    for (const envNode of envVarsInFile) {
-      if (KNOWN_SECRETS.has(envNode.name) || isSecretName(envNode.name)) {
-        // already tracked — good. Not hardcoded.
-      }
-    }
-  }
+  const issues: SecretIssue[] = [
+    ...gitignoreIssues,
+    ...checkWeakDefaults(envValues),
+    ...checkClientExposure(graph, envDefs, clientPrefix),
+    ...checkKnownCredentials(envDefs, presentEnvFiles, gitignorePatterns),
+  ];
 
   issues.sort((a, b) => {
     const sev = { critical: 0, warning: 1, info: 2 };
@@ -213,6 +121,110 @@ export async function analyzeSecrets(
     clientPrefix,
     durationMs: Math.round(performance.now() - start),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Individual checks — each returns SecretIssue[]
+// ---------------------------------------------------------------------------
+
+const ENV_FILENAMES = [".env", ".env.local", ".env.development", ".env.staging", ".env.production", ".env.test"];
+
+function findEnvFiles(rootDir: string): string[] {
+  return ENV_FILENAMES.filter((f) => existsSync(join(rootDir, f)));
+}
+
+function auditGitignore(presentEnvFiles: string[], patterns: string[]): {
+  ignored: string[]; exposed: string[]; issues: SecretIssue[];
+} {
+  const ignored: string[] = [];
+  const exposed: string[] = [];
+  const issues: SecretIssue[] = [];
+
+  for (const f of presentEnvFiles) {
+    if (isIgnored(f, patterns)) {
+      ignored.push(f);
+    } else {
+      exposed.push(f);
+      if (f !== ".env.example") {
+        issues.push({
+          severity: "critical", category: "gitignore",
+          message: `${f} exists but is NOT in .gitignore — secrets may be committed to git`, file: f,
+        });
+      }
+    }
+  }
+
+  return { ignored, exposed, issues };
+}
+
+function checkWeakDefaults(envValues: Map<string, string>): SecretIssue[] {
+  const issues: SecretIssue[] = [];
+  for (const [varName, value] of envValues) {
+    if (isSecretName(varName) && value && WEAK_DEFAULTS.has(value.toLowerCase())) {
+      issues.push({
+        severity: "warning", category: "weak-default",
+        message: `${varName} has a weak or placeholder default value "${value}"`, variable: varName,
+      });
+    }
+  }
+  return issues;
+}
+
+function checkClientExposure(
+  graph: DependencyGraph,
+  envDefs: Map<string, string[]>,
+  clientPrefix: string | null,
+): SecretIssue[] {
+  if (!clientPrefix) return [];
+
+  const issues: SecretIssue[] = [];
+  const reported = new Set<string>();
+
+  for (const node of graph.allNodes()) {
+    if (node.kind !== "env_var") continue;
+    if (node.name.startsWith(clientPrefix) && isSecretName(node.name) && !reported.has(node.name)) {
+      reported.add(node.name);
+      issues.push({
+        severity: "critical", category: "client-exposed",
+        message: `${node.name} is client-exposed (${clientPrefix} prefix) but contains a secret pattern`,
+        file: node.filePath, variable: node.name,
+      });
+    }
+  }
+
+  for (const [varName] of envDefs) {
+    if (varName.startsWith(clientPrefix) && isSecretName(varName) && !reported.has(varName)) {
+      reported.add(varName);
+      issues.push({
+        severity: "critical", category: "client-exposed",
+        message: `${varName} is client-exposed (${clientPrefix} prefix) but contains a secret pattern`,
+        variable: varName,
+      });
+    }
+  }
+
+  return issues;
+}
+
+function checkKnownCredentials(
+  envDefs: Map<string, string[]>,
+  presentEnvFiles: string[],
+  gitignorePatterns: string[],
+): SecretIssue[] {
+  const issues: SecretIssue[] = [];
+  for (const [varName] of envDefs) {
+    if (!KNOWN_SECRETS.has(varName)) continue;
+    const inGitignore = presentEnvFiles.every(
+      (f) => envDefs.get(varName)?.includes(f) ? isIgnored(f, gitignorePatterns) : true,
+    );
+    if (!inGitignore) {
+      issues.push({
+        severity: "warning", category: "known-credential",
+        message: `${varName} is a known credential and may be in a tracked .env file`, variable: varName,
+      });
+    }
+  }
+  return issues;
 }
 
 // ---------------------------------------------------------------------------

@@ -46,7 +46,6 @@ export async function explainFile(
 
   const parsed = await parseFile(rootDir, filePath);
   const fns = parsed ? computeFileComplexity(parsed) : [];
-  const maxCog = fns.length > 0 ? Math.max(...fns.map((f) => f.cognitive)) : 0;
   const worstFn = fns.length > 0 ? fns.reduce((a, b) => (b.cognitive > a.cognitive ? b : a)) : null;
 
   const coupling = analyzeCoupling(graph, rootDir, maxCommits, 3, 0.3);
@@ -54,159 +53,19 @@ export async function explainFile(
     (p) => p.fileA === filePath || p.fileB === filePath,
   );
 
-  const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
-  const totalFiles = fileNodes.length;
+  const totalFiles = graph.allNodes().filter((n) => n.kind === "file").length;
+  const summary = buildFileSummary(filePath, focus, totalFiles);
 
   const sections: ExplainSection[] = [];
-
-  // Role
-  const roles: string[] = [];
-  const liveExports = focus.exports.filter((e) => !e.dead);
-  const totalConsumers = new Set(liveExports.flatMap((e) => e.consumers)).size;
-
-  if (focus.importedBy.length >= 10) roles.push("hub");
-  if (focus.imports.length === 0 && focus.importedBy.length > 0) roles.push("foundation");
-  if (focus.importedBy.length === 0 && focus.imports.length > 0) roles.push("leaf");
-  if (filePath.includes("test") || filePath.includes("spec")) roles.push("test");
-  if (focus.exports.length > 0 && liveExports.length === 0) roles.push("dead-weight");
-
   const pct = totalFiles > 0 ? Math.round((focus.blastRadius / totalFiles) * 100) : 0;
 
-  let summary: string;
-  if (roles.includes("hub")) {
-    summary = `${filePath} is a hub — ${focus.importedBy.length} files import it, making it one of the most connected files in the project.`;
-  } else if (roles.includes("foundation")) {
-    summary = `${filePath} is a foundation module — it exports to ${totalConsumers} consumer(s) but imports nothing locally.`;
-  } else if (roles.includes("leaf")) {
-    summary = `${filePath} is a leaf — it imports ${focus.imports.length} file(s) but nobody imports it.`;
-  } else if (roles.includes("dead-weight")) {
-    summary = `${filePath} has ${focus.exports.length} export(s), all unused. Consider removing or consolidating.`;
-  } else {
-    summary = `${filePath} imports ${focus.imports.length} file(s) and is imported by ${focus.importedBy.length}.`;
-  }
-
-  // Blast radius
-  if (focus.blastRadius > 0) {
-    const blastLines: string[] = [];
-    blastLines.push(`Changes here can affect ${focus.blastRadius} file(s) — ${pct}% of the codebase.`);
-
-    const depths = Object.entries(focus.impactByDepth)
-      .sort(([a], [b]) => Number(a) - Number(b));
-    if (depths.length > 0) {
-      const depthParts = depths.map(([d, count]) =>
-        Number(d) === 1 ? `${count} direct` : `${count} at depth ${d}`,
-      );
-      blastLines.push(`Impact chain: ${depthParts.join(", ")}.`);
-    }
-
-    if (focus.blastRadius >= 20) {
-      blastLines.push("This is a large blast radius. Test changes thoroughly before pushing.");
-    }
-
-    sections.push({ heading: "Blast radius", lines: blastLines });
-  }
-
-  // Complexity
-  if (worstFn && maxCog > 4) {
-    const cxLines: string[] = [];
-    cxLines.push(
-      `Most complex function: ${worstFn.name} (cognitive complexity ${worstFn.cognitive}, ${worstFn.lineCount} lines).`,
-    );
-    if (maxCog >= 25) {
-      cxLines.push("This is alarming complexity. Consider breaking it into smaller functions with clear responsibilities.");
-    } else if (maxCog >= 15) {
-      cxLines.push("This is high complexity. The function may be hard to modify safely.");
-    } else if (maxCog >= 8) {
-      cxLines.push("Moderate complexity. Still readable, but watch for growth.");
-    }
-    if (fns.length > 1) {
-      const simple = fns.filter((f) => f.cognitive <= 4).length;
-      cxLines.push(`${fns.length} functions total, ${simple} are simple (cognitive <= 4).`);
-    }
-    sections.push({ heading: "Complexity", lines: cxLines });
-  }
-
-  // Churn
-  if (focus.gitChanges > 0) {
-    const churnLines: string[] = [];
-    churnLines.push(
-      `Changed ${focus.gitChanges} time(s) in the last ${maxCommits} commits${focus.lastChanged ? `, last ${focus.lastChanged}` : ""}.`,
-    );
-    if (focus.gitChanges >= 15 && focus.blastRadius >= 5) {
-      churnLines.push("High churn + large blast radius = elevated breakage risk. This file deserves extra test coverage.");
-    } else if (focus.gitChanges >= 15) {
-      churnLines.push("This file changes often. If it also has high complexity, consider stabilizing its interface.");
-    }
-    sections.push({ heading: "Churn", lines: churnLines });
-  }
-
-  // Hidden coupling
-  if (hiddenPartners.length > 0) {
-    const coupLines: string[] = [];
-    for (const p of hiddenPartners) {
-      const other = p.fileA === filePath ? p.fileB : p.fileA;
-      const pctCo = Math.round(p.couplingRatio * 100);
-      coupLines.push(`${other} (${pctCo}% co-change rate, ${p.cochanges} co-commits, no import relationship).`);
-    }
-    coupLines.push(
-      "These files change together but aren't connected via imports. Consider making the relationship explicit or extracting shared logic.",
-    );
-    sections.push({ heading: "Hidden coupling", lines: coupLines });
-  }
-
-  // Exports
-  const deadExports = focus.exports.filter((e) => e.dead);
-  if (deadExports.length > 0) {
-    const expLines: string[] = [];
-    expLines.push(
-      `${deadExports.length} of ${focus.exports.length} export(s) are unused: ${deadExports.map((e) => e.name).join(", ")}.`,
-    );
-    expLines.push("Remove dead exports to reduce surface area. Run: impulse refactor . --dry-run");
-    sections.push({ heading: "Dead exports", lines: expLines });
-  }
-
-  // Tests
-  if (focus.testsCovering.length > 0) {
-    const testLines: string[] = [];
-    testLines.push(`${focus.testsCovering.length} test file(s) cover this file:`);
-    for (const t of focus.testsCovering.slice(0, 5)) {
-      testLines.push(`  ${t}`);
-    }
-    if (focus.testsCovering.length > 5) {
-      testLines.push(`  ...and ${focus.testsCovering.length - 5} more`);
-    }
-    sections.push({ heading: "Tests", lines: testLines });
-  } else if (focus.blastRadius > 0) {
-    sections.push({
-      heading: "Tests",
-      lines: ["No test files cover this file. Given its blast radius, adding tests would reduce risk."],
-    });
-  }
-
-  // Ownership (third dimension)
-  const ownership = getFileOwnership(rootDir, filePath, maxCommits);
-  if (ownership.topAuthors.length > 0) {
-    const ownLines: string[] = [];
-    const topAuthor = ownership.topAuthors[0];
-    const pct = Math.round(topAuthor.share * 100);
-
-    if (ownership.busFactor <= 1) {
-      ownLines.push(
-        `Single owner: ${topAuthor.name} (${pct}% of commits). Bus factor: 1.`,
-      );
-      if (focus.blastRadius >= 5) {
-        ownLines.push("This file has high blast radius AND a single expert. If they leave, no one can safely modify it.");
-      } else {
-        ownLines.push("Knowledge is concentrated in one person. Consider pair reviews to spread expertise.");
-      }
-    } else {
-      const names = ownership.topAuthors.slice(0, 3).map((a) => `${a.name} (${Math.round(a.share * 100)}%)`);
-      ownLines.push(`${ownership.totalAuthors} author(s): ${names.join(", ")}${ownership.totalAuthors > 3 ? "..." : ""}.`);
-      ownLines.push(`Bus factor: ${ownership.busFactor}. Knowledge is distributed.`);
-    }
-
-    sections.push({ heading: "Ownership", lines: ownLines });
-  }
+  pushIfNonEmpty(sections, buildBlastSection(focus, pct));
+  pushIfNonEmpty(sections, buildComplexitySection(fns, worstFn));
+  pushIfNonEmpty(sections, buildChurnSection(focus, maxCommits));
+  pushIfNonEmpty(sections, buildHiddenCouplingSection(filePath, hiddenPartners));
+  pushIfNonEmpty(sections, buildDeadExportsSection(focus));
+  pushIfNonEmpty(sections, buildTestsSection(focus));
+  pushIfNonEmpty(sections, buildOwnershipSection(rootDir, filePath, focus, maxCommits));
 
   return { file: filePath, summary, sections };
 }
@@ -228,130 +87,280 @@ export async function explainProject(
 
   const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
   const totalFiles = fileNodes.length;
+  const langs = detectLanguages(fileNodes);
 
+  const gradeWord = health.score >= 90 ? "excellent" : health.score >= 80 ? "good" : health.score >= 60 ? "moderate" : "concerning";
+  const summary = `${totalFiles} files, ${langs}. Architecture health: ${health.score}/100 (${health.grade}) — ${gradeWord}.`;
+
+  const sections: ExplainSection[] = [];
+  pushIfNonEmpty(sections, buildProjectCoreSection(graph, fileNodes, totalFiles));
+  pushIfNonEmpty(sections, buildProjectHotspotsSection(hotspotReport));
+  pushIfNonEmpty(sections, buildProjectCyclesSection(health));
+  pushIfNonEmpty(sections, buildProjectCouplingSection(coupling));
+  pushIfNonEmpty(sections, buildProjectDeadExportsSection(graph, fileNodes));
+  sections.push(buildProjectSuggestionsSection(suggestions));
+
+  return { summary, sections };
+}
+
+// ---------------------------------------------------------------------------
+// Project explanation section builders
+// ---------------------------------------------------------------------------
+
+const LANG_MAP: Record<string, string> = {
+  ".ts": "TypeScript", ".tsx": "TypeScript", ".js": "TypeScript", ".jsx": "TypeScript",
+  ".py": "Python", ".go": "Go", ".rs": "Rust", ".cs": "C#",
+  ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin", ".php": "PHP",
+  ".c": "C", ".h": "C", ".cpp": "C++", ".hpp": "C++", ".cc": "C++", ".cxx": "C++", ".hxx": "C++",
+};
+
+function detectLanguages(fileNodes: Array<{ filePath: string }>): string {
   const langSet = new Set<string>();
   for (const n of fileNodes) {
     const ext = n.filePath.slice(n.filePath.lastIndexOf("."));
-    if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) langSet.add("TypeScript");
-    else if (ext === ".py") langSet.add("Python");
-    else if (ext === ".go") langSet.add("Go");
-    else if (ext === ".rs") langSet.add("Rust");
-    else if (ext === ".cs") langSet.add("C#");
-    else if (ext === ".java") langSet.add("Java");
-    else if (ext === ".kt" || ext === ".kts") langSet.add("Kotlin");
-    else if (ext === ".php") langSet.add("PHP");
-    else if (ext === ".c" || ext === ".h") langSet.add("C");
-    else if ([".cpp", ".hpp", ".cc", ".cxx", ".hxx"].includes(ext)) langSet.add("C++");
+    const lang = LANG_MAP[ext];
+    if (lang) langSet.add(lang);
   }
-  const langs = [...langSet].join(", ") || "unknown";
+  return [...langSet].join(", ") || "unknown";
+}
 
-  const gradeWord = health.score >= 90 ? "excellent" : health.score >= 80 ? "good" : health.score >= 60 ? "moderate" : "concerning";
-
-  const summary = `${totalFiles} files, ${langs}. Architecture health: ${health.score}/100 (${health.grade}) — ${gradeWord}.`;
-  const sections: ExplainSection[] = [];
-
-  // Core files — most imported
+function buildProjectCoreSection(graph: DependencyGraph, fileNodes: Array<{ id: string; filePath: string }>, totalFiles: number): ExplainSection | null {
   const byDependents = fileNodes
     .map((n) => ({ file: n.filePath, deps: graph.getDependents(n.id).filter((e) => e.kind === "imports").length }))
     .filter((f) => f.deps > 0)
     .sort((a, b) => b.deps - a.deps);
 
-  if (byDependents.length > 0) {
-    const top = byDependents[0];
-    const topPct = Math.round((graph.analyzeFileImpact(top.file).affected.filter((a) => a.node.kind === "file").length / totalFiles) * 100);
-    const coreLines: string[] = [];
-    coreLines.push(`${top.file} is the heart of this project — ${top.deps} files import it.`);
-    coreLines.push(`Changes there can ripple through ${topPct}% of the codebase.`);
-    if (byDependents.length >= 2) {
-      coreLines.push(`Other central files: ${byDependents.slice(1, 4).map((f) => `${f.file} (${f.deps})`).join(", ")}.`);
-    }
-    sections.push({ heading: "Core", lines: coreLines });
-  }
+  if (byDependents.length === 0) return null;
 
-  // Hotspots
-  const criticalHotspots = hotspotReport.hotspots.filter((h) => h.risk === "critical" || h.risk === "high");
-  if (criticalHotspots.length > 0) {
-    const hotLines: string[] = [];
-    for (const h of criticalHotspots.slice(0, 3)) {
-      hotLines.push(
-        `${h.file} — changes ${h.changes} times, affects ${h.affected} files. ${h.risk.toUpperCase()} risk.`,
-      );
-    }
-    hotLines.push("Hotspots change frequently AND have large blast radius. They're the most likely source of unexpected breakage.");
-    sections.push({ heading: "Hotspots", lines: hotLines });
+  const top = byDependents[0];
+  const topPct = Math.round((graph.analyzeFileImpact(top.file).affected.filter((a) => a.node.kind === "file").length / totalFiles) * 100);
+  const lines: string[] = [
+    `${top.file} is the heart of this project — ${top.deps} files import it.`,
+    `Changes there can ripple through ${topPct}% of the codebase.`,
+  ];
+  if (byDependents.length >= 2) {
+    lines.push(`Other central files: ${byDependents.slice(1, 4).map((f) => `${f.file} (${f.deps})`).join(", ")}.`);
   }
+  return { heading: "Core", lines };
+}
 
-  // Cycles
-  if (health.cycles.length > 0) {
-    const cycleLines: string[] = [];
-    const tight = health.cycles.filter((c) => c.severity === "tight-couple").length;
-    const short = health.cycles.filter((c) => c.severity === "short-ring").length;
-    const long = health.cycles.filter((c) => c.severity === "long-ring").length;
-    const parts: string[] = [];
-    if (tight > 0) parts.push(`${tight} tight-couple`);
-    if (short > 0) parts.push(`${short} short-ring`);
-    if (long > 0) parts.push(`${long} long-ring`);
-    cycleLines.push(`${health.cycles.length} dependency cycle(s): ${parts.join(", ")}.`);
-    if (long > 0) {
-      cycleLines.push("Long rings (5+ files) are architectural problems. Consider extracting shared interfaces.");
-    }
-    sections.push({ heading: "Cycles", lines: cycleLines });
+function buildProjectHotspotsSection(hotspotReport: ReturnType<typeof analyzeHotspots>): ExplainSection | null {
+  const critical = hotspotReport.hotspots.filter((h) => h.risk === "critical" || h.risk === "high");
+  if (critical.length === 0) return null;
+
+  const lines = critical.slice(0, 3).map((h) =>
+    `${h.file} — changes ${h.changes} times, affects ${h.affected} files. ${h.risk.toUpperCase()} risk.`,
+  );
+  lines.push("Hotspots change frequently AND have large blast radius. They're the most likely source of unexpected breakage.");
+  return { heading: "Hotspots", lines };
+}
+
+function buildProjectCyclesSection(health: ReturnType<typeof analyzeHealth>): ExplainSection | null {
+  if (health.cycles.length === 0) return null;
+
+  const tight = health.cycles.filter((c) => c.severity === "tight-couple").length;
+  const short = health.cycles.filter((c) => c.severity === "short-ring").length;
+  const long = health.cycles.filter((c) => c.severity === "long-ring").length;
+  const parts: string[] = [];
+  if (tight > 0) parts.push(`${tight} tight-couple`);
+  if (short > 0) parts.push(`${short} short-ring`);
+  if (long > 0) parts.push(`${long} long-ring`);
+
+  const lines = [`${health.cycles.length} dependency cycle(s): ${parts.join(", ")}.`];
+  if (long > 0) lines.push("Long rings (5+ files) are architectural problems. Consider extracting shared interfaces.");
+  return { heading: "Cycles", lines };
+}
+
+function buildProjectCouplingSection(coupling: ReturnType<typeof analyzeCoupling>): ExplainSection | null {
+  if (coupling.hidden.length === 0) return null;
+
+  const lines = [`${coupling.hidden.length} file pair(s) change together in git but have no import relationship.`];
+  for (const p of coupling.hidden.slice(0, 3)) {
+    lines.push(`  ${p.fileA} ↔ ${p.fileB} (${Math.round(p.couplingRatio * 100)}% co-change)`);
   }
+  lines.push("Hidden coupling means your architecture doesn't reflect real dependencies. Run: impulse coupling .");
+  return { heading: "Hidden coupling", lines };
+}
 
-  // Hidden coupling
-  if (coupling.hidden.length > 0) {
-    const coupLines: string[] = [];
-    coupLines.push(`${coupling.hidden.length} file pair(s) change together in git but have no import relationship.`);
-    for (const p of coupling.hidden.slice(0, 3)) {
-      coupLines.push(`  ${p.fileA} ↔ ${p.fileB} (${Math.round(p.couplingRatio * 100)}% co-change)`);
-    }
-    coupLines.push("Hidden coupling means your architecture doesn't reflect real dependencies. Run: impulse coupling .");
-    sections.push({ heading: "Hidden coupling", lines: coupLines });
-  }
-
-  // Dead exports
+function buildProjectDeadExportsSection(graph: DependencyGraph, fileNodes: Array<{ id: string; filePath: string }>): ExplainSection | null {
   const exportNodes = graph.allNodes().filter((n) => n.kind === "export");
-  const deadExports = exportNodes.filter((n) => {
-    const consumers = graph.getDependents(n.id).filter((e) => e.kind === "uses_export");
-    return consumers.length === 0;
-  });
+  const deadExports = exportNodes.filter((n) =>
+    graph.getDependents(n.id).every((e) => e.kind !== "uses_export"),
+  );
+
   const barrelPaths = new Set<string>();
   for (const n of fileNodes) {
     const fileExports = graph.getNodesByFile(n.filePath).filter((nn) => nn.kind === "export");
     if (fileExports.length === 0) continue;
     const deps = graph.getDependencies(n.id).filter((e) => e.kind === "imports");
-    const hasReExports = fileExports.some((exp) =>
-      graph.getDependencies(exp.id).some((e) => e.kind === "uses_export"),
-    );
+    const hasReExports = fileExports.some((exp) => graph.getDependencies(exp.id).some((e) => e.kind === "uses_export"));
     if (hasReExports && deps.length > 0) barrelPaths.add(n.filePath);
   }
+
   const nonBarrelDead = deadExports.filter((n) => !barrelPaths.has(n.filePath));
+  if (nonBarrelDead.length === 0) return null;
 
-  if (nonBarrelDead.length > 0) {
-    sections.push({
-      heading: "Dead exports",
-      lines: [
-        `${nonBarrelDead.length} export(s) have no consumers. Removing them simplifies the codebase.`,
-        "Run: impulse refactor . --dry-run",
-      ],
-    });
+  return {
+    heading: "Dead exports",
+    lines: [
+      `${nonBarrelDead.length} export(s) have no consumers. Removing them simplifies the codebase.`,
+      "Run: impulse refactor . --dry-run",
+    ],
+  };
+}
+
+function buildProjectSuggestionsSection(suggestions: ReturnType<typeof generateSuggestions>): ExplainSection {
+  if (suggestions.suggestions.length === 0) {
+    return { heading: "What to do next", lines: ["Architecture looks clean. Keep it that way."] };
   }
 
-  // Suggestions
-  if (suggestions.suggestions.length > 0) {
-    const sugLines: string[] = [];
-    for (const s of suggestions.suggestions.slice(0, 3)) {
-      sugLines.push(formatSuggestion(s));
-    }
-    if (suggestions.estimatedScoreImprovement > 0) {
-      sugLines.push(`Implementing these could improve health by ~${suggestions.estimatedScoreImprovement} points.`);
-    }
-    sections.push({ heading: "What to do next", lines: sugLines });
+  const lines = suggestions.suggestions.slice(0, 3).map(formatSuggestion);
+  if (suggestions.estimatedScoreImprovement > 0) {
+    lines.push(`Implementing these could improve health by ~${suggestions.estimatedScoreImprovement} points.`);
+  }
+  return { heading: "What to do next", lines };
+}
+
+// ---------------------------------------------------------------------------
+// File explanation section builders
+// ---------------------------------------------------------------------------
+
+function pushIfNonEmpty(sections: ExplainSection[], section: ExplainSection | null): void {
+  if (section) sections.push(section);
+}
+
+function buildFileSummary(filePath: string, focus: ReturnType<typeof focusFile>, totalFiles: number): string {
+  const liveExports = focus.exports.filter((e) => !e.dead);
+  const totalConsumers = new Set(liveExports.flatMap((e) => e.consumers)).size;
+
+  if (focus.importedBy.length >= 10) {
+    return `${filePath} is a hub — ${focus.importedBy.length} files import it, making it one of the most connected files in the project.`;
+  }
+  if (focus.imports.length === 0 && focus.importedBy.length > 0) {
+    return `${filePath} is a foundation module — it exports to ${totalConsumers} consumer(s) but imports nothing locally.`;
+  }
+  if (focus.importedBy.length === 0 && focus.imports.length > 0) {
+    return `${filePath} is a leaf — it imports ${focus.imports.length} file(s) but nobody imports it.`;
+  }
+  if (focus.exports.length > 0 && liveExports.length === 0) {
+    return `${filePath} has ${focus.exports.length} export(s), all unused. Consider removing or consolidating.`;
+  }
+  return `${filePath} imports ${focus.imports.length} file(s) and is imported by ${focus.importedBy.length}.`;
+}
+
+function buildBlastSection(focus: ReturnType<typeof focusFile>, pct: number): ExplainSection | null {
+  if (focus.blastRadius === 0) return null;
+
+  const lines: string[] = [`Changes here can affect ${focus.blastRadius} file(s) — ${pct}% of the codebase.`];
+
+  const depths = Object.entries(focus.impactByDepth).sort(([a], [b]) => Number(a) - Number(b));
+  if (depths.length > 0) {
+    const parts = depths.map(([d, count]) => Number(d) === 1 ? `${count} direct` : `${count} at depth ${d}`);
+    lines.push(`Impact chain: ${parts.join(", ")}.`);
+  }
+  if (focus.blastRadius >= 20) {
+    lines.push("This is a large blast radius. Test changes thoroughly before pushing.");
+  }
+
+  return { heading: "Blast radius", lines };
+}
+
+function buildComplexitySection(fns: ReturnType<typeof computeFileComplexity>, worstFn: ReturnType<typeof computeFileComplexity>[number] | null): ExplainSection | null {
+  if (!worstFn || worstFn.cognitive <= 4) return null;
+
+  const lines: string[] = [
+    `Most complex function: ${worstFn.name} (cognitive complexity ${worstFn.cognitive}, ${worstFn.lineCount} lines).`,
+  ];
+
+  if (worstFn.cognitive >= 25) lines.push("This is alarming complexity. Consider breaking it into smaller functions with clear responsibilities.");
+  else if (worstFn.cognitive >= 15) lines.push("This is high complexity. The function may be hard to modify safely.");
+  else if (worstFn.cognitive >= 8) lines.push("Moderate complexity. Still readable, but watch for growth.");
+
+  if (fns.length > 1) {
+    const simple = fns.filter((f) => f.cognitive <= 4).length;
+    lines.push(`${fns.length} functions total, ${simple} are simple (cognitive <= 4).`);
+  }
+
+  return { heading: "Complexity", lines };
+}
+
+function buildChurnSection(focus: ReturnType<typeof focusFile>, maxCommits: number): ExplainSection | null {
+  if (focus.gitChanges === 0) return null;
+
+  const lines: string[] = [
+    `Changed ${focus.gitChanges} time(s) in the last ${maxCommits} commits${focus.lastChanged ? `, last ${focus.lastChanged}` : ""}.`,
+  ];
+
+  if (focus.gitChanges >= 15 && focus.blastRadius >= 5) {
+    lines.push("High churn + large blast radius = elevated breakage risk. This file deserves extra test coverage.");
+  } else if (focus.gitChanges >= 15) {
+    lines.push("This file changes often. If it also has high complexity, consider stabilizing its interface.");
+  }
+
+  return { heading: "Churn", lines };
+}
+
+function buildHiddenCouplingSection(filePath: string, partners: ReturnType<typeof analyzeCoupling>["hidden"]): ExplainSection | null {
+  if (partners.length === 0) return null;
+
+  const lines: string[] = [];
+  for (const p of partners) {
+    const other = p.fileA === filePath ? p.fileB : p.fileA;
+    lines.push(`${other} (${Math.round(p.couplingRatio * 100)}% co-change rate, ${p.cochanges} co-commits, no import relationship).`);
+  }
+  lines.push("These files change together but aren't connected via imports. Consider making the relationship explicit or extracting shared logic.");
+
+  return { heading: "Hidden coupling", lines };
+}
+
+function buildDeadExportsSection(focus: ReturnType<typeof focusFile>): ExplainSection | null {
+  const deadExports = focus.exports.filter((e) => e.dead);
+  if (deadExports.length === 0) return null;
+
+  return {
+    heading: "Dead exports",
+    lines: [
+      `${deadExports.length} of ${focus.exports.length} export(s) are unused: ${deadExports.map((e) => e.name).join(", ")}.`,
+      "Remove dead exports to reduce surface area. Run: impulse refactor . --dry-run",
+    ],
+  };
+}
+
+function buildTestsSection(focus: ReturnType<typeof focusFile>): ExplainSection | null {
+  if (focus.testsCovering.length > 0) {
+    const lines = [`${focus.testsCovering.length} test file(s) cover this file:`];
+    for (const t of focus.testsCovering.slice(0, 5)) lines.push(`  ${t}`);
+    if (focus.testsCovering.length > 5) lines.push(`  ...and ${focus.testsCovering.length - 5} more`);
+    return { heading: "Tests", lines };
+  }
+  if (focus.blastRadius > 0) {
+    return { heading: "Tests", lines: ["No test files cover this file. Given its blast radius, adding tests would reduce risk."] };
+  }
+  return null;
+}
+
+function buildOwnershipSection(rootDir: string, filePath: string, focus: ReturnType<typeof focusFile>, maxCommits: number): ExplainSection | null {
+  const ownership = getFileOwnership(rootDir, filePath, maxCommits);
+  if (ownership.topAuthors.length === 0) return null;
+
+  const lines: string[] = [];
+  const topAuthor = ownership.topAuthors[0];
+  const pct = Math.round(topAuthor.share * 100);
+
+  if (ownership.busFactor <= 1) {
+    lines.push(`Single owner: ${topAuthor.name} (${pct}% of commits). Bus factor: 1.`);
+    lines.push(
+      focus.blastRadius >= 5
+        ? "This file has high blast radius AND a single expert. If they leave, no one can safely modify it."
+        : "Knowledge is concentrated in one person. Consider pair reviews to spread expertise.",
+    );
   } else {
-    sections.push({ heading: "What to do next", lines: ["Architecture looks clean. Keep it that way."] });
+    const names = ownership.topAuthors.slice(0, 3).map((a) => `${a.name} (${Math.round(a.share * 100)}%)`);
+    lines.push(`${ownership.totalAuthors} author(s): ${names.join(", ")}${ownership.totalAuthors > 3 ? "..." : ""}.`);
+    lines.push(`Bus factor: ${ownership.busFactor}. Knowledge is distributed.`);
   }
 
-  return { summary, sections };
+  return { heading: "Ownership", lines };
 }
 
 // ---------------------------------------------------------------------------

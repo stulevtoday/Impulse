@@ -150,11 +150,14 @@ impulse scan .
 | `coupling .` | Find hidden coupling — co-change without imports |
 | `complexity .` | Cyclomatic + cognitive complexity per function across all files |
 | `risk .` | **Unified risk** — complexity × churn × impact × coupling in one view |
+| `debt .` | **Technical debt score** — 5 dimensions aggregated, trend tracking, CI budget gate |
+| `deps .` | **External dependency analysis** — supply chain risk, phantom deps, penetration |
 | `refactor .` | **Auto-refactor** — remove dead exports with `--dry-run` preview |
 | `focus file.ts .` | Deep X-ray of a single file |
 | `graph . --format mermaid` | Export dependency graph as **Mermaid**, DOT, or JSON |
 | `badge .` | Generate SVG health badge for your README |
 | `env .` | Find undefined/unused environment variables |
+| `workspaces .` | Detect monorepo workspaces and cross-package dependencies |
 | `ci .` | Preview the CI report locally |
 
 Every analysis command supports `--json` for scripting:
@@ -489,6 +492,103 @@ Files that are high on *multiple* dimensions are the real danger zones.
 impulse risk . --risk critical   # only show critical files
 impulse risk . --json            # machine-readable output
 ```
+
+## Technical debt tracking
+
+The killer question for every standup: **"Is our debt growing or shrinking?"** — answered with one command:
+
+```
+  impulse debt .
+
+  Impulse — Technical Debt Report
+  126 files analyzed in 407ms
+
+  Debt Score: 35/100 (C)
+    ██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░
+
+  Dimensions
+
+    structure   ▓▓▓░░░░░░░  29/100  (30% weight)
+                13 god file(s), 7 orphan(s), max depth 9
+    complexity  ▓▓▓▓▓░░░░░  50/100  (25% weight)
+                22 alarming, 64 complex, avg cognitive 5.2
+    coupling    ▓▓▓▓▓▓░░░░  60/100  (20% weight)
+                23 hidden pair(s) across 89 commits
+    churn       ▓▓░░░░░░░░  15/100  (15% weight)
+                1 high hotspot(s)
+    boundaries  ░░░░░░░░░░   0/100  (10% weight)
+                all 5 zone(s) clean
+
+  Top Debt Contributors
+
+    ██████████████████  src/core/explain.ts
+    debt 144 · alarming complexity: explainFile (cog 66)
+
+    ███████████████░░░  src/core/graph.ts
+    debt 119 · god file (51 connections), alarming complexity
+```
+
+Five dimensions aggregated into one trackable score (0 = no debt, 100 = maximum debt):
+
+- **structure** — cycles, god files, orphans, deep chains (from health analysis)
+- **complexity** — alarming/complex function ratio (cognitive complexity)
+- **coupling** — hidden coupling pairs (co-change without imports)
+- **churn** — critical/high hotspots (change frequency × blast radius)
+- **boundaries** — architecture boundary violations
+
+Each run saves a snapshot to `.impulse/debt-history.json`. Use `--trend` to see the chart:
+
+```bash
+impulse debt .                  # current debt score
+impulse debt . --trend          # historical trend chart
+impulse debt . --budget 30      # fail if debt > 30 (for CI)
+impulse debt . --json           # machine-readable output
+```
+
+The `--budget` flag exits with code 1 if debt exceeds the threshold — plug it into CI to prevent debt from growing silently.
+
+## External dependency analysis
+
+Which packages are load-bearing? Which are phantom? One command, all 10 languages:
+
+```
+  impulse deps .
+
+  Impulse — Dependency Analysis
+  129 files, 29 external deps (6 packages) in 1ms
+
+  Supply Chain Risk — dependencies embedded in ≥20% of files
+
+  ███████████████░░░░░░░░░░░░░░░  node:path  builtin
+  64 file(s) · 50% penetration · CRITICAL
+
+  ██████░░░░░░░░░░░░░░░░░░░░░░░░  commander
+  26 file(s) · 20% penetration · HIGH
+
+  Categories
+    builtin     21 dep(s), 202 import(s)
+    package     6 dep(s), 35 import(s)
+    system      2 dep(s), 4 import(s)
+
+  Risk: 1 critical · 3 high · 5 medium · 20 low
+  ⚠ 4 phantom dep(s) — run impulse deps . --phantoms
+```
+
+Key concepts:
+- **Penetration** — percentage of files using this dependency. A package at 50% means half your codebase breaks if it has a bug
+- **Phantom deps** — declared in `package.json` / `go.mod` / `Cargo.toml` / `requirements.txt` but never imported in code
+- **Surface deps** — used by exactly 1 file, easy to swap out
+- **Supply chain risk** — dependencies embedded in 20%+ of files are critical infrastructure
+
+```bash
+impulse deps .                  # full analysis
+impulse deps . --phantoms       # declared but unused packages
+impulse deps . --surface        # single-file dependencies
+impulse deps . --risk high      # only high/critical risk deps
+impulse deps . --json           # machine-readable output
+```
+
+Reads manifests from: `package.json`, `go.mod`, `Cargo.toml`, `requirements.txt`, `pyproject.toml`, `composer.json`.
 
 ## Plugins
 
@@ -859,11 +959,40 @@ impulse daemon .
 | `/changelog?base=ref` | Semantic changelog with impact by module |
 | `/owners?file=path` | Code ownership, bus factor, knowledge risk |
 | `/secrets` | Secret leak detection — .gitignore, client exposure, weak defaults |
+| `/debt` | Technical debt score with dimensions, trends, and contributors |
+| `/deps` | External dependency analysis — risk, phantoms, clusters |
 | `/focus?file=path` | Deep analysis of a single file |
 | `/doctor` | Full diagnostic report |
 | `/safe-delete?file=` | Safe deletion analysis with verdict |
 | `/export?format=mermaid` | Graph export (mermaid, dot, json) |
 | `/badge` | SVG health badge (dynamic) |
+
+## Monorepo support
+
+Impulse auto-detects workspace packages and resolves cross-package imports as **local dependencies** — not external. No config needed.
+
+```bash
+impulse workspaces .
+```
+
+```
+  Impulse — Workspace Detection
+  pnpm monorepo with 12 package(s)
+
+    @app/api        packages/api        → src/index.ts
+    @app/core       packages/core       → src/index.ts
+    @app/ui         packages/ui         → src/index.ts
+    ...
+
+  ✓ Cross-package imports will resolve to local files instead of external.
+```
+
+When `@app/ui` imports `@app/core`, Impulse resolves it to `packages/core/src/index.ts` instead of marking it as `external:`. This means:
+- **`impulse impact packages/core/src/utils.ts .`** shows files affected in **other packages**
+- **`impulse health .`** scores the entire monorepo architecture, including cross-package cycles
+- **`impulse coupling .`** finds hidden coupling between packages
+
+Supported workspace tools: **pnpm** (`pnpm-workspace.yaml`), **npm/yarn** (`package.json` workspaces), **Lerna** (`lerna.json`), **Nx** (`nx.json`).
 
 ## How it works
 
@@ -897,7 +1026,7 @@ The answer was Impulse — because the hardest part of working with code isn't w
 
 Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.
 
-35 commands. 249 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
+38 commands. 294 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.
 
 ## License
 

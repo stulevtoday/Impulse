@@ -1,6 +1,6 @@
 {
   "name": "impulse-analyzer",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Know what breaks before it breaks. Dependency graph, impact analysis, complexity scoring, and risk analysis for 10 languages.",
   "type": "module",
   "main": "dist/cli/index.js",

@@ -115,102 +115,23 @@ export async function runReview(
 
   const changedSet = new Set(changedFiles);
   const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
-  const filePathSet = new Set(fileNodes.map((n) => n.filePath));
-  const knownChanged = changedFiles.filter((f) => filePathSet.has(f));
+  const knownChanged = filterKnownFiles(changedFiles, fileNodes);
 
-  // Blast radius for every file (needed for normalization)
-  const blastByFile = new Map<string, number>();
-  for (const node of fileNodes) {
-    const impact = graph.analyzeFileImpact(node.filePath);
-    blastByFile.set(
-      node.filePath,
-      impact.affected.filter((a) => a.node.kind === "file").length,
-    );
-  }
+  const blastByFile = computeBlastMap(graph, fileNodes);
+  const affectedMap = collectAffected(graph, knownChanged, changedSet);
 
-  // Collect affected files across all changes
-  const affectedMap = new Map<string, { depth: number; via: string }>();
-  for (const file of knownChanged) {
-    const impact = getFileImpact(graph, file);
-    for (const item of impact.affected) {
-      if (item.node.kind !== "file" || changedSet.has(item.node.filePath)) continue;
-      const existing = affectedMap.get(item.node.filePath);
-      if (!existing || item.depth < existing.depth) {
-        affectedMap.set(item.node.filePath, { depth: item.depth, via: file });
-      }
-    }
-  }
-
-  // Git churn + coupling (parallel — both hit git log)
   const maxCommits = opts.maxCommits ?? 300;
   const [changeCounts, coupling] = await Promise.all([
     Promise.resolve(getChangeFrequencies(rootDir, maxCommits)),
     Promise.resolve(analyzeCoupling(graph, rootDir, maxCommits, 3, 0.3)),
   ]);
+  const couplingByFile = buildCouplingMap(coupling);
 
-  const couplingByFile = new Map<string, number>();
-  for (const pair of coupling.hidden) {
-    couplingByFile.set(pair.fileA, (couplingByFile.get(pair.fileA) ?? 0) + 1);
-    couplingByFile.set(pair.fileB, (couplingByFile.get(pair.fileB) ?? 0) + 1);
-  }
+  const fileReviews = scoreFiles(knownChanged, cxMap, changeCounts, blastByFile, couplingByFile);
 
-  // Normalization maxima
-  const maxChanges = Math.max(1, ...Array.from(changeCounts.values()));
-  const maxBlast = Math.max(1, ...Array.from(blastByFile.values()));
-
-  // Risk scoring — only for changed files, but normalized against the whole project
-  const fileReviews: FileReview[] = [];
-
-  for (const fp of knownChanged) {
-    const cx = cxMap.get(fp);
-    const changes = changeCounts.get(fp) ?? 0;
-    const blast = blastByFile.get(fp) ?? 0;
-    const hiddenCoup = couplingByFile.get(fp) ?? 0;
-
-    const maxCog = cx?.max ?? 0;
-    const complexityNorm = Math.min(100, maxCog * 4);
-    const churnNorm = Math.min(100, Math.round((changes / maxChanges) * 100));
-    const impactNorm = Math.min(100, Math.round((blast / maxBlast) * 100));
-    const couplingNorm = Math.min(100, hiddenCoup * 33);
-
-    const composite =
-      W_COMPLEXITY * complexityNorm +
-      W_CHURN * churnNorm +
-      W_IMPACT * impactNorm +
-      W_COUPLING * couplingNorm;
-
-    const peakDim = Math.max(complexityNorm, churnNorm, impactNorm, couplingNorm, 1);
-    const score = Math.round(Math.sqrt((composite / 100) * (peakDim / 100)) * 100);
-
-    fileReviews.push({
-      file: fp,
-      riskScore: score,
-      riskLevel: classifyRisk(score),
-      blastRadius: blast,
-      complexity: maxCog,
-      churn: changes,
-      couplings: hiddenCoup,
-    });
-  }
-
-  fileReviews.sort((a, b) => b.riskScore - a.riskScore);
-
-  // Cycles involving changed files
   const health = analyzeHealth(graph, config.boundaries);
-  const cycles = health.cycles
-    .filter((c) => c.cycle.some((f) => changedSet.has(f)))
-    .map((c) => ({ cycle: c.cycle, severity: c.severity }));
-
-  // Boundary violations involving changed files
-  let boundaryViolations: ReviewReport["boundaryViolations"] = [];
-  if (config.boundaries && Object.keys(config.boundaries).length > 0) {
-    const bReport = checkBoundaries(graph, config.boundaries);
-    boundaryViolations = bReport.violations.filter(
-      (v) => changedSet.has(v.from) || changedSet.has(v.to),
-    );
-  }
-
-  // Test targets
+  const cycles = filterCycles(health, changedSet);
+  const boundaryViolations = filterBoundaryViolations(graph, config, changedSet);
   const testReport = findTestTargets(graph, changedFiles);
 
   // Plugins — filter to changed files only
@@ -359,116 +280,27 @@ export async function runQuickReview(
     return { report: emptyReport(start), cache: freshCache };
   }
 
-  const now = Date.now();
-  const stale = !cache || (now - cache.lastRefreshMs > CACHE_TTL_MS);
   const maxCommits = opts.maxCommits ?? 300;
+  const { changeCounts, couplingByFile, cxMap, stale, now } = await refreshQuickCache(graph, rootDir, maxCommits, cache);
 
-  let changeCounts: Map<string, number>;
-  let couplingByFile: Map<string, number>;
-  let cxMap: Map<string, { max: number; avg: number; fns: number }>;
+  await parseMissingComplexity(cxMap, changedFiles, rootDir);
 
-  if (stale) {
-    const [cc, coupling] = await Promise.all([
-      Promise.resolve(getChangeFrequencies(rootDir, maxCommits)),
-      Promise.resolve(analyzeCoupling(graph, rootDir, maxCommits, 3, 0.3)),
-    ]);
-    changeCounts = cc;
-    couplingByFile = new Map();
-    for (const pair of coupling.hidden) {
-      couplingByFile.set(pair.fileA, (couplingByFile.get(pair.fileA) ?? 0) + 1);
-      couplingByFile.set(pair.fileB, (couplingByFile.get(pair.fileB) ?? 0) + 1);
-    }
-    cxMap = cache?.complexityMap ?? new Map();
-  } else {
-    changeCounts = cache.changeCounts;
-    couplingByFile = cache.couplingByFile;
-    cxMap = cache.complexityMap;
-  }
-
-  // Parse complexity only for changed files that aren't cached
-  for (const fp of changedFiles) {
-    if (!cxMap.has(fp)) {
-      const parsed = await parseFile(rootDir, fp);
-      if (parsed) {
-        const fns = computeFileComplexity(parsed);
-        if (fns.length > 0) {
-          let maxCog = 0;
-          let totalCog = 0;
-          for (const fn of fns) {
-            totalCog += fn.cognitive;
-            if (fn.cognitive > maxCog) maxCog = fn.cognitive;
-          }
-          cxMap.set(fp, { max: maxCog, avg: fns.length ? Math.round((totalCog / fns.length) * 10) / 10 : 0, fns: fns.length });
-        }
-      }
-    }
-  }
-
-  const changedSet = new Set(changedFiles);
   const fileNodes = graph.allNodes().filter((n) => n.kind === "file");
-  const filePathSet = new Set(fileNodes.map((n) => n.filePath));
-  const knownChanged = changedFiles.filter((f) => filePathSet.has(f));
+  const knownChanged = filterKnownFiles(changedFiles, fileNodes);
+  const changedSet = new Set(changedFiles);
 
-  const blastByFile = new Map<string, number>();
-  for (const node of fileNodes) {
-    const impact = graph.analyzeFileImpact(node.filePath);
-    blastByFile.set(node.filePath, impact.affected.filter((a) => a.node.kind === "file").length);
-  }
+  const blastByFile = computeBlastMap(graph, fileNodes);
+  const affectedMap = collectAffected(graph, knownChanged, changedSet);
 
-  const affectedMap = new Map<string, { depth: number; via: string }>();
-  for (const file of knownChanged) {
-    const impact = getFileImpact(graph, file);
-    for (const item of impact.affected) {
-      if (item.node.kind !== "file" || changedSet.has(item.node.filePath)) continue;
-      const existing = affectedMap.get(item.node.filePath);
-      if (!existing || item.depth < existing.depth) {
-        affectedMap.set(item.node.filePath, { depth: item.depth, via: file });
-      }
-    }
-  }
-
-  const maxChanges = Math.max(1, ...Array.from(changeCounts.values()));
-  const maxBlast = Math.max(1, ...Array.from(blastByFile.values()));
-
-  const fileReviews: FileReview[] = [];
-  for (const fp of knownChanged) {
-    const cx = cxMap.get(fp);
-    const changes = changeCounts.get(fp) ?? 0;
-    const blast = blastByFile.get(fp) ?? 0;
-    const hiddenCoup = couplingByFile.get(fp) ?? 0;
-
-    const maxCog = cx?.max ?? 0;
-    const complexityNorm = Math.min(100, maxCog * 4);
-    const churnNorm = Math.min(100, Math.round((changes / maxChanges) * 100));
-    const impactNorm = Math.min(100, Math.round((blast / maxBlast) * 100));
-    const couplingNorm = Math.min(100, hiddenCoup * 33);
-
-    const composite = W_COMPLEXITY * complexityNorm + W_CHURN * churnNorm + W_IMPACT * impactNorm + W_COUPLING * couplingNorm;
-    const peakDim = Math.max(complexityNorm, churnNorm, impactNorm, couplingNorm, 1);
-    const score = Math.round(Math.sqrt((composite / 100) * (peakDim / 100)) * 100);
-
-    fileReviews.push({
-      file: fp, riskScore: score, riskLevel: classifyRisk(score),
-      blastRadius: blast, complexity: maxCog, churn: changes, couplings: hiddenCoup,
-    });
-  }
-  fileReviews.sort((a, b) => b.riskScore - a.riskScore);
+  const fileReviews = scoreFiles(knownChanged, cxMap, changeCounts, blastByFile, couplingByFile);
 
   const config = await loadConfig(rootDir);
   const health = analyzeHealth(graph, config.boundaries);
-  const cycles = health.cycles
-    .filter((c) => c.cycle.some((f) => changedSet.has(f)))
-    .map((c) => ({ cycle: c.cycle, severity: c.severity }));
-
-  let boundaryViolations: ReviewReport["boundaryViolations"] = [];
-  if (config.boundaries && Object.keys(config.boundaries).length > 0) {
-    const bReport = checkBoundaries(graph, config.boundaries);
-    boundaryViolations = bReport.violations.filter((v) => changedSet.has(v.from) || changedSet.has(v.to));
-  }
-
+  const cycles = filterCycles(health, changedSet);
+  const boundaryViolations = filterBoundaryViolations(graph, config, changedSet);
   const testReport = findTestTargets(graph, changedFiles);
-  const verdict = computeVerdict(fileReviews, cycles, boundaryViolations, [], affectedMap.size);
 
+  const verdict = computeVerdict(fileReviews, cycles, boundaryViolations, [], affectedMap.size);
   const affected = [...affectedMap.entries()]
     .map(([file, info]) => ({ file, depth: info.depth, via: info.via }))
     .sort((a, b) => a.depth - b.depth);
@@ -489,6 +321,140 @@ export async function runQuickReview(
     },
     cache: updatedCache,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Shared scoring and collection helpers
+// ---------------------------------------------------------------------------
+
+function scoreFiles(
+  files: string[],
+  cxMap: Map<string, { max: number }>,
+  changeCounts: Map<string, number>,
+  blastByFile: Map<string, number>,
+  couplingByFile: Map<string, number>,
+): FileReview[] {
+  const maxChanges = Math.max(1, ...Array.from(changeCounts.values()));
+  const maxBlast = Math.max(1, ...Array.from(blastByFile.values()));
+
+  const reviews: FileReview[] = [];
+  for (const fp of files) {
+    const maxCog = cxMap.get(fp)?.max ?? 0;
+    const changes = changeCounts.get(fp) ?? 0;
+    const blast = blastByFile.get(fp) ?? 0;
+    const hiddenCoup = couplingByFile.get(fp) ?? 0;
+
+    const complexityNorm = Math.min(100, maxCog * 4);
+    const churnNorm = Math.min(100, Math.round((changes / maxChanges) * 100));
+    const impactNorm = Math.min(100, Math.round((blast / maxBlast) * 100));
+    const couplingNorm = Math.min(100, hiddenCoup * 33);
+
+    const composite = W_COMPLEXITY * complexityNorm + W_CHURN * churnNorm + W_IMPACT * impactNorm + W_COUPLING * couplingNorm;
+    const peakDim = Math.max(complexityNorm, churnNorm, impactNorm, couplingNorm, 1);
+    const score = Math.round(Math.sqrt((composite / 100) * (peakDim / 100)) * 100);
+
+    reviews.push({
+      file: fp, riskScore: score, riskLevel: classifyRisk(score),
+      blastRadius: blast, complexity: maxCog, churn: changes, couplings: hiddenCoup,
+    });
+  }
+  reviews.sort((a, b) => b.riskScore - a.riskScore);
+  return reviews;
+}
+
+function computeBlastMap(graph: DependencyGraph, fileNodes: Array<{ filePath: string }>): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const node of fileNodes) {
+    const impact = graph.analyzeFileImpact(node.filePath);
+    m.set(node.filePath, impact.affected.filter((a) => a.node.kind === "file").length);
+  }
+  return m;
+}
+
+function collectAffected(
+  graph: DependencyGraph,
+  knownChanged: string[],
+  changedSet: Set<string>,
+): Map<string, { depth: number; via: string }> {
+  const m = new Map<string, { depth: number; via: string }>();
+  for (const file of knownChanged) {
+    const impact = getFileImpact(graph, file);
+    for (const item of impact.affected) {
+      if (item.node.kind !== "file" || changedSet.has(item.node.filePath)) continue;
+      const existing = m.get(item.node.filePath);
+      if (!existing || item.depth < existing.depth) {
+        m.set(item.node.filePath, { depth: item.depth, via: file });
+      }
+    }
+  }
+  return m;
+}
+
+function filterKnownFiles(changedFiles: string[], fileNodes: Array<{ filePath: string }>): string[] {
+  const pathSet = new Set(fileNodes.map((n) => n.filePath));
+  return changedFiles.filter((f) => pathSet.has(f));
+}
+
+function filterCycles(health: ReturnType<typeof analyzeHealth>, changedSet: Set<string>) {
+  return health.cycles
+    .filter((c) => c.cycle.some((f) => changedSet.has(f)))
+    .map((c) => ({ cycle: c.cycle, severity: c.severity }));
+}
+
+function filterBoundaryViolations(
+  graph: DependencyGraph,
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  changedSet: Set<string>,
+): ReviewReport["boundaryViolations"] {
+  if (!config.boundaries || Object.keys(config.boundaries).length === 0) return [];
+  const bReport = checkBoundaries(graph, config.boundaries);
+  return bReport.violations.filter((v) => changedSet.has(v.from) || changedSet.has(v.to));
+}
+
+function buildCouplingMap(coupling: ReturnType<typeof analyzeCoupling>): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const pair of coupling.hidden) {
+    m.set(pair.fileA, (m.get(pair.fileA) ?? 0) + 1);
+    m.set(pair.fileB, (m.get(pair.fileB) ?? 0) + 1);
+  }
+  return m;
+}
+
+async function refreshQuickCache(
+  graph: DependencyGraph,
+  rootDir: string,
+  maxCommits: number,
+  cache?: QuickReviewCache,
+) {
+  const now = Date.now();
+  const stale = !cache || (now - cache.lastRefreshMs > CACHE_TTL_MS);
+
+  if (stale) {
+    const [changeCounts, coupling] = await Promise.all([
+      Promise.resolve(getChangeFrequencies(rootDir, maxCommits)),
+      Promise.resolve(analyzeCoupling(graph, rootDir, maxCommits, 3, 0.3)),
+    ]);
+    return { changeCounts, couplingByFile: buildCouplingMap(coupling), cxMap: cache?.complexityMap ?? new Map(), stale, now };
+  }
+
+  return { changeCounts: cache.changeCounts, couplingByFile: cache.couplingByFile, cxMap: cache.complexityMap, stale, now };
+}
+
+async function parseMissingComplexity(
+  cxMap: Map<string, { max: number; avg: number; fns: number }>,
+  files: string[],
+  rootDir: string,
+): Promise<void> {
+  for (const fp of files) {
+    if (cxMap.has(fp)) continue;
+    const parsed = await parseFile(rootDir, fp);
+    if (!parsed) continue;
+    const fns = computeFileComplexity(parsed);
+    if (fns.length === 0) continue;
+    let maxCog = 0, totalCog = 0;
+    for (const fn of fns) { totalCog += fn.cognitive; if (fn.cognitive > maxCog) maxCog = fn.cognitive; }
+    cxMap.set(fp, { max: maxCog, avg: fns.length ? Math.round((totalCog / fns.length) * 10) / 10 : 0, fns: fns.length });
+  }
 }
 
 // ---------------------------------------------------------------------------

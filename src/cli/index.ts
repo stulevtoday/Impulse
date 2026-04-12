@@ -39,6 +39,9 @@ import { registerHookCommand } from "./hook.js";
 import { registerExplainCommand } from "./explain.js";
 import { registerOwnersCommand } from "./owners.js";
 import { registerChangelogCommand } from "./changelog.js";
+import { registerDebtCommand } from "./debt.js";
+import { registerDepsCommand } from "./deps.js";
+import { registerWorkspacesCommand } from "./workspaces.js";
 import { runDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -456,6 +459,9 @@ registerHookCommand(program);
 registerExplainCommand(program);
 registerOwnersCommand(program);
 registerChangelogCommand(program);
+registerDebtCommand(program);
+registerDepsCommand(program);
+registerWorkspacesCommand(program);
 
 program
   .command("badge")
@@ -529,6 +535,78 @@ program
     process.argv[2] = resolve(dir);
     await import("../ci/index.js");
   });
+
+// ---------------------------------------------------------------------------
+// Grouped help — makes 37+ commands navigable
+// ---------------------------------------------------------------------------
+
+const COMMAND_GROUPS: Array<{ title: string; commands: string[] }> = [
+  {
+    title: "Explore & Understand",
+    commands: ["scan", "impact", "diff", "why", "tree", "focus", "explore", "explain"],
+  },
+  {
+    title: "Review & Quality",
+    commands: ["review", "test", "risk", "check", "hook", "watch"],
+  },
+  {
+    title: "Architecture",
+    commands: ["health", "doctor", "debt", "complexity", "coupling", "hotspots", "suggest", "history", "compare"],
+  },
+  {
+    title: "Dependencies",
+    commands: ["deps", "exports", "env", "safe-delete", "refactor"],
+  },
+  {
+    title: "Team & Changes",
+    commands: ["owners", "changelog"],
+  },
+  {
+    title: "Infrastructure",
+    commands: ["init", "workspaces", "daemon", "visualize", "badge", "graph", "ci"],
+  },
+];
+
+program.configureHelp({
+  formatHelp(cmd, helper) {
+    if (cmd !== program) {
+      const defaultHelp = new Command().configureHelp();
+      return defaultHelp.formatHelp!(cmd, helper);
+    }
+
+    const dim = "\x1b[2m";
+    const reset = "\x1b[0m";
+    const bold = "\x1b[1m";
+    const cyan = "\x1b[36m";
+
+    const lines: string[] = [];
+    lines.push(`\n  ${bold}I M P U L S E${reset}  v${version}`);
+    lines.push(`  Understand your project. Know what breaks before it breaks.\n`);
+    lines.push(`  ${dim}Usage:${reset} impulse ${cyan}<command>${reset} [options] [dir]\n`);
+
+    const cmdMap = new Map<string, Command>();
+    for (const sub of cmd.commands) {
+      cmdMap.set(sub.name(), sub);
+    }
+
+    for (const group of COMMAND_GROUPS) {
+      lines.push(`  ${bold}${group.title}${reset}`);
+
+      for (const name of group.commands) {
+        const sub = cmdMap.get(name);
+        if (!sub) continue;
+        const desc = sub.description().split("—")[0].trim();
+        lines.push(`    ${cyan}${name.padEnd(14)}${reset}${desc}`);
+      }
+      lines.push("");
+    }
+
+    lines.push(`  ${dim}Run impulse <command> --help for details on any command.${reset}`);
+    lines.push(`  ${dim}Run impulse with no arguments for a quick project overview.${reset}\n`);
+
+    return lines.join("\n");
+  },
+});
 
 if (process.argv.length <= 2) {
   runDashboard().catch((err) => {

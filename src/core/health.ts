@@ -260,67 +260,70 @@ function computeScore(
   complexity?: ComplexityReport,
 ): { score: number; penalties: Penalties } {
   const penalties: Penalties = {
-    cycles: 0,
-    godFiles: 0,
-    deepChains: 0,
-    orphans: 0,
-    hubConcentration: 0,
-    stabilityViolations: 0,
-    complexity: 0,
+    cycles: penalizeCycles(cycles),
+    godFiles: Math.min(godFiles.length * 4, 20),
+    deepChains: penalizeDeepChains(deepChains, stats.totalFiles),
+    orphans: penalizeOrphans(orphans.length, stats.totalFiles),
+    hubConcentration: penalizeHubConcentration(stats),
+    stabilityViolations: stability ? Math.min(stability.violations.length * 5, 15) : 0,
+    complexity: penalizeComplexity(complexity),
   };
-
-  let rawCyclePenalty = 0;
-  for (const cycle of cycles) {
-    switch (cycle.severity) {
-      case "tight-couple": rawCyclePenalty += 3; break;
-      case "short-ring": rawCyclePenalty += 8; break;
-      case "long-ring": rawCyclePenalty += 15; break;
-    }
-  }
-  penalties.cycles = Math.min(rawCyclePenalty, 50);
-
-  penalties.godFiles = Math.min(godFiles.length * 4, 20);
-
-  if (deepChains.length > 0) {
-    const maxDepth = deepChains[0].maxDepth;
-    if (maxDepth >= 5) {
-      const depthPct = stats.totalFiles > 0 ? maxDepth / stats.totalFiles : 0;
-      const avgDepth = deepChains.reduce((s, c) => s + c.maxDepth, 0) / deepChains.length;
-      const depthRatio = avgDepth > 0 ? maxDepth / avgDepth : 1;
-      if ((depthRatio > 2.5 && maxDepth > 8) || depthPct > 0.8) penalties.deepChains = 15;
-      else if (depthRatio > 1.8 || depthPct > 0.5) penalties.deepChains = 8;
-      else if (depthPct > 0.3 || maxDepth > 10) penalties.deepChains = 3;
-    }
-  }
-
-  const orphanRatio = stats.totalFiles > 0 ? orphans.length / stats.totalFiles : 0;
-  if (orphanRatio > 0.3) penalties.orphans = 10;
-  else if (orphanRatio > 0.15) penalties.orphans = 5;
-
-  if (stats.totalFiles > 0 && stats.maxImportedBy > 0) {
-    const hubShare = stats.maxImportedBy / stats.totalFiles;
-    const avgIB = stats.totalFiles > 0 ? stats.maxImportedBy / Math.max(1, stats.avgImports) : 0;
-    if (hubShare > 0.4 && avgIB > 8) penalties.hubConcentration = 10;
-    else if (hubShare > 0.25 && avgIB > 5) penalties.hubConcentration = 5;
-  }
-
-  if (stability && stability.violations.length > 0) {
-    penalties.stabilityViolations = Math.min(stability.violations.length * 5, 15);
-  }
-
-  if (complexity && complexity.totalFunctions > 0) {
-    const alarmingRatio = complexity.distribution.alarming / complexity.totalFunctions;
-    const complexRatio = (complexity.distribution.alarming + complexity.distribution.complex) / complexity.totalFunctions;
-    if (alarmingRatio > 0.15) penalties.complexity = 15;
-    else if (alarmingRatio > 0.05) penalties.complexity = 10;
-    else if (complexRatio > 0.3) penalties.complexity = 8;
-    else if (complexRatio > 0.15) penalties.complexity = 4;
-  }
 
   const total = Object.values(penalties).reduce((a, b) => a + b, 0);
   const score = Math.max(0, Math.min(100, 100 - total));
-
   return { score, penalties };
+}
+
+function penalizeCycles(cycles: CircularDependency[]): number {
+  let raw = 0;
+  for (const cycle of cycles) {
+    if (cycle.severity === "tight-couple") raw += 3;
+    else if (cycle.severity === "short-ring") raw += 8;
+    else raw += 15;
+  }
+  return Math.min(raw, 50);
+}
+
+function penalizeDeepChains(deepChains: DepthAnalysis[], totalFiles: number): number {
+  if (deepChains.length === 0) return 0;
+  const maxDepth = deepChains[0].maxDepth;
+  if (maxDepth < 5) return 0;
+
+  const depthPct = totalFiles > 0 ? maxDepth / totalFiles : 0;
+  const avgDepth = deepChains.reduce((s, c) => s + c.maxDepth, 0) / deepChains.length;
+  const depthRatio = avgDepth > 0 ? maxDepth / avgDepth : 1;
+
+  if ((depthRatio > 2.5 && maxDepth > 8) || depthPct > 0.8) return 15;
+  if (depthRatio > 1.8 || depthPct > 0.5) return 8;
+  if (depthPct > 0.3 || maxDepth > 10) return 3;
+  return 0;
+}
+
+function penalizeOrphans(orphanCount: number, totalFiles: number): number {
+  const ratio = totalFiles > 0 ? orphanCount / totalFiles : 0;
+  if (ratio > 0.3) return 10;
+  if (ratio > 0.15) return 5;
+  return 0;
+}
+
+function penalizeHubConcentration(stats: { totalFiles: number; maxImportedBy: number; avgImports: number }): number {
+  if (stats.totalFiles === 0 || stats.maxImportedBy === 0) return 0;
+  const hubShare = stats.maxImportedBy / stats.totalFiles;
+  const avgIB = stats.maxImportedBy / Math.max(1, stats.avgImports);
+  if (hubShare > 0.4 && avgIB > 8) return 10;
+  if (hubShare > 0.25 && avgIB > 5) return 5;
+  return 0;
+}
+
+function penalizeComplexity(complexity?: ComplexityReport): number {
+  if (!complexity || complexity.totalFunctions === 0) return 0;
+  const alarmingRatio = complexity.distribution.alarming / complexity.totalFunctions;
+  const complexRatio = (complexity.distribution.alarming + complexity.distribution.complex) / complexity.totalFunctions;
+  if (alarmingRatio > 0.15) return 15;
+  if (alarmingRatio > 0.05) return 10;
+  if (complexRatio > 0.3) return 8;
+  if (complexRatio > 0.15) return 4;
+  return 0;
 }
 
 function scoreToGrade(score: number): string {

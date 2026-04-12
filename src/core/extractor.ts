@@ -3,6 +3,7 @@ import type { GraphNode, GraphEdge } from "./graph-types.js";
 import type { ExtractionResult, ExtractorContext } from "./types.js";
 import { dirname, resolve, relative, extname, join } from "node:path";
 import { existsSync } from "node:fs";
+import { resolveWorkspaceImport } from "./workspaces.js";
 import { extractPythonDependencies } from "./python-extractor.js";
 import { extractGoDependencies } from "./go-extractor.js";
 import { extractRustDependencies } from "./rust-extractor.js";
@@ -345,7 +346,14 @@ function resolveImportPath(
     return resolveRelativePath(specifier, fromFile, ctx.rootDir);
   }
 
-  return resolveAliasPath(specifier, ctx);
+  const aliasResult = resolveAliasPath(specifier, ctx);
+  if (aliasResult) return aliasResult;
+
+  if (ctx.workspaceMap && ctx.workspaceMap.size > 0) {
+    return resolveWorkspaceImport(specifier, ctx.workspaceMap, ctx.rootDir);
+  }
+
+  return null;
 }
 
 function resolveRelativePath(
