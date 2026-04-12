@@ -627,6 +627,8 @@ body {
     <button class="tab" data-tab="risk">Risk</button>
     <button class="tab" data-tab="owners">Owners</button>
     <button class="tab" data-tab="secrets">Secrets</button>
+    <button class="tab" data-tab="debt">Debt</button>
+    <button class="tab" data-tab="deps">Deps</button>
     <div class="tab-fill"></div>
     <button id="bottom-toggle" title="Toggle panel">&#9650;</button>
   </div>
@@ -641,6 +643,8 @@ body {
     <div id="pane-risk" class="tab-pane"></div>
     <div id="pane-owners" class="tab-pane"></div>
     <div id="pane-secrets" class="tab-pane"></div>
+    <div id="pane-debt" class="tab-pane"></div>
+    <div id="pane-deps" class="tab-pane"></div>
   </div>
 </div>
 
@@ -1191,6 +1195,8 @@ function loadTabIfNeeded(name) {
     case "risk": loadAndRender(pane, "/risk", renderRisk); break;
     case "owners": loadAndRender(pane, "/owners", renderOwners); break;
     case "secrets": loadAndRender(pane, "/secrets", renderSecrets); break;
+    case "debt": loadAndRender(pane, "/debt", renderDebt); break;
+    case "deps": loadAndRender(pane, "/deps", renderDeps); break;
   }
 }
 
@@ -1522,6 +1528,84 @@ function renderSecrets(pane, data) {
     h += '<div style="font-size:11px;color:var(--t3)">' + issue.category + (issue.file ? ' &middot; ' + esc(issue.file) : '') + '</div>';
     h += '</div></div>';
   });
+  pane.innerHTML = h;
+}
+
+/* ── Tab: Debt ── */
+function renderDebt(pane, data) {
+  var dims = data.dimensions || [];
+  var score = data.score || 0;
+  var grade = data.grade || "?";
+  var gradeColor = score <= 20 ? "var(--ok)" : score <= 35 ? "var(--warn)" : "var(--err)";
+
+  var h = '<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:16px">';
+  h += '<span style="font-size:24px;font-weight:700;color:' + gradeColor + '">' + score + '/100</span>';
+  h += '<span style="font-size:14px;color:' + gradeColor + '">(' + grade + ')</span>';
+  h += '</div>';
+
+  dims.forEach(function(d) {
+    var pct = Math.min(100, d.score);
+    var color = d.score <= 15 ? "var(--ok)" : d.score <= 35 ? "var(--warn)" : d.score >= 60 ? "var(--err)" : "var(--info)";
+    h += '<div style="margin-bottom:10px">';
+    h += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span style="color:var(--t1)">' + esc(d.name) + '</span><span style="color:' + color + '">' + d.score + '/100</span></div>';
+    h += '<div class="hs-bar"><div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>';
+    h += '<div style="font-size:11px;color:var(--t3)">' + esc(d.details) + '</div>';
+    h += '</div>';
+  });
+
+  var contribs = data.topContributors || [];
+  if (contribs.length > 0) {
+    h += '<div style="margin-top:16px;font-size:12px;color:var(--t1);font-weight:600;margin-bottom:8px">Top contributors</div>';
+    contribs.slice(0, 10).forEach(function(c) {
+      h += '<div style="padding:4px 0;border-bottom:1px solid var(--s2);font-size:12px">';
+      h += '<span class="hs-file" style="color:var(--ac)">' + esc(c.file) + '</span>';
+      h += ' <span style="color:var(--t3)">debt ' + c.debt + '</span>';
+      h += '<div style="font-size:11px;color:var(--t3)">' + c.reasons.slice(0, 2).map(esc).join(", ") + '</div>';
+      h += '</div>';
+    });
+  }
+
+  if (data.trend && data.trend.snapshots && data.trend.snapshots.length > 1) {
+    var dir = data.trend.direction;
+    var arrow = dir === "improving" ? "\\u2193" : dir === "worsening" ? "\\u2191" : "\\u2192";
+    var trendColor = dir === "improving" ? "var(--ok)" : dir === "worsening" ? "var(--err)" : "var(--t3)";
+    h += '<div style="margin-top:12px;font-size:12px;color:' + trendColor + '">' + arrow + ' ' + dir + ' (' + (data.trend.delta > 0 ? "+" : "") + data.trend.delta + ' since previous)</div>';
+  }
+
+  pane.innerHTML = h;
+  addFileClickHandlers(pane);
+}
+
+/* ── Tab: Deps ── */
+function renderDeps(pane, data) {
+  var deps = data.dependencies || [];
+  if (deps.length === 0) { pane.innerHTML = '<div class="pane-empty">No external dependencies</div>'; return; }
+
+  var d = data.riskDistribution || {};
+  var h = '<div style="display:flex;gap:12px;margin-bottom:4px;font-size:12px">';
+  h += '<span style="color:var(--err)">' + (d.critical||0) + ' critical</span>';
+  h += '<span style="color:var(--warn)">' + (d.high||0) + ' high</span>';
+  h += '<span style="color:var(--info)">' + (d.medium||0) + ' medium</span>';
+  h += '<span style="color:var(--t3)">' + (d.low||0) + ' low</span>';
+  h += '</div>';
+  h += '<div style="font-size:11px;color:var(--t3);margin-bottom:12px">' + data.totalPackages + ' packages, ' + deps.length + ' total deps</div>';
+
+  var phantoms = data.phantoms || [];
+  if (phantoms.length > 0) {
+    h += '<div style="font-size:12px;color:var(--warn);margin-bottom:12px">' + phantoms.length + ' phantom dep(s) declared but not imported</div>';
+  }
+
+  var maxCount = deps.length > 0 ? deps[0].usageCount : 1;
+  deps.slice(0, 25).forEach(function(dep) {
+    var pct = Math.min(100, Math.round((dep.usageCount / maxCount) * 100));
+    var color = dep.risk === "critical" ? "var(--err)" : dep.risk === "high" ? "var(--warn)" : dep.risk === "medium" ? "var(--info)" : "var(--t4)";
+    var cat = dep.category === "builtin" ? ' <span style="color:var(--t4)">[builtin]</span>' : dep.category === "system" ? ' <span style="color:var(--t4)">[system]</span>' : "";
+    h += '<div style="margin-bottom:6px">';
+    h += '<div style="font-size:12px"><span style="color:var(--t1)">' + esc(dep.name) + '</span>' + cat + ' <span style="color:var(--t3)">' + dep.usageCount + ' file(s), ' + dep.penetration + '%</span></div>';
+    h += '<div class="hs-bar"><div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>';
+    h += '</div>';
+  });
+
   pane.innerHTML = h;
 }
 
