@@ -4,14 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Impulse — Know what breaks before it breaks</title>
-  <meta name="description" content="Dependency graph + impact analysis for TypeScript, Python, Go, Rust, C#. Zero config. Runs locally.">
+  <meta name="description" content="Dependency graph, impact analysis, complexity scoring, and risk analysis for 10 languages. Zero config. Runs locally.">
   <meta property="og:title" content="Impulse — Know what breaks before it breaks">
-  <meta property="og:description" content="Change a file, instantly see what else could break. 5 languages, zero config.">
+  <meta property="og:description" content="Change a file, instantly see what else could break. 10 languages, zero config, runs locally.">
   <meta property="og:type" content="website">
   <style>
     :root {
       --bg: #0a0a0f;
       --bg-card: #12121a;
+      --bg-nav: rgba(10, 10, 15, 0.92);
       --border: #1e1e2e;
       --text: #e4e4ef;
       --text-dim: #8888a0;
@@ -20,13 +21,13 @@
       --green: #4ade80;
       --red: #f87171;
       --yellow: #fbbf24;
+      --cyan: #22d3ee;
       --pink: #ff6b8a;
       --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
     }
-
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
+    html { scroll-behavior: smooth; scroll-padding-top: 72px; }
     body {
       font-family: var(--font);
       background: var(--bg);
@@ -34,273 +35,102 @@
       line-height: 1.7;
       -webkit-font-smoothing: antialiased;
     }
-
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
-
-    .container {
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 0 24px;
-    }
+    .container { max-width: 880px; margin: 0 auto; padding: 0 24px; }
 
     /* ── Nav ── */
     nav {
-      padding: 20px 0;
+      position: sticky; top: 0; z-index: 100;
+      padding: 16px 0;
+      background: var(--bg-nav);
+      backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
     }
-    nav .container {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .logo {
-      font-size: 14px;
-      letter-spacing: 6px;
-      font-weight: 600;
-      color: var(--text);
-    }
-    .nav-links { display: flex; gap: 24px; }
-    .nav-links a { color: var(--text-dim); font-size: 14px; }
+    nav .container { display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-size: 13px; letter-spacing: 6px; font-weight: 600; color: var(--text); }
+    .nav-links { display: flex; gap: 20px; flex-wrap: wrap; }
+    .nav-links a { color: var(--text-dim); font-size: 13px; white-space: nowrap; }
     .nav-links a:hover { color: var(--text); text-decoration: none; }
 
     /* ── Hero ── */
-    .hero {
-      padding: 100px 0 80px;
-      text-align: center;
-    }
-    .hero h1 {
-      font-size: clamp(32px, 5vw, 52px);
-      font-weight: 700;
-      line-height: 1.15;
-      margin-bottom: 20px;
-    }
+    .hero { padding: 80px 0 60px; text-align: center; }
+    .hero h1 { font-size: clamp(28px, 5vw, 48px); font-weight: 700; line-height: 1.15; margin-bottom: 16px; }
     .hero h1 span { color: var(--accent); }
-    .hero .subtitle {
-      font-size: 18px;
-      color: var(--text-dim);
-      max-width: 560px;
-      margin: 0 auto 40px;
-    }
-    .hero-cta {
-      display: flex;
-      gap: 16px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
+    .hero .subtitle { font-size: 17px; color: var(--text-dim); max-width: 560px; margin: 0 auto 12px; }
+    .hero .stats { font-size: 13px; color: var(--text-dim); margin-bottom: 32px; }
+    .hero .stats b { color: var(--text); }
+    .hero-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
     .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 28px;
-      border-radius: 8px;
-      font-size: 15px;
-      font-weight: 500;
-      border: none;
-      cursor: pointer;
-      transition: all 0.2s;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 24px; border-radius: 8px; font-size: 14px;
+      font-weight: 500; border: none; cursor: pointer; transition: all 0.2s;
     }
-    .btn-primary {
-      background: var(--accent);
-      color: #fff;
-    }
-    .btn-primary:hover {
-      background: #4a6eee;
-      text-decoration: none;
-      transform: translateY(-1px);
-      box-shadow: 0 4px 20px var(--accent-glow);
-    }
-    .btn-secondary {
-      background: transparent;
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-secondary:hover {
-      border-color: var(--accent);
-      text-decoration: none;
-    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #4a6eee; text-decoration: none; transform: translateY(-1px); box-shadow: 0 4px 20px var(--accent-glow); }
+    .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { border-color: var(--accent); text-decoration: none; }
 
-    /* ── Terminal demo ── */
+    /* ── Terminal ── */
     .terminal {
-      background: #0d0d14;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      margin: 60px auto;
-      max-width: 700px;
-      overflow: hidden;
+      background: #0d0d14; border: 1px solid var(--border); border-radius: 10px;
+      margin: 40px auto; max-width: 700px; overflow: hidden;
     }
-    .terminal-header {
-      padding: 12px 16px;
-      background: #15151f;
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-    .terminal-dot {
-      width: 12px; height: 12px;
-      border-radius: 50%;
-    }
-    .terminal-dot.r { background: #ff5f57; }
-    .terminal-dot.y { background: #febc2e; }
-    .terminal-dot.g { background: #28c840; }
+    .terminal-header { padding: 10px 14px; background: #15151f; display: flex; gap: 7px; }
+    .terminal-dot { width: 11px; height: 11px; border-radius: 50%; }
+    .terminal-dot.r { background: #ff5f57; } .terminal-dot.y { background: #febc2e; } .terminal-dot.g { background: #28c840; }
     .terminal-body {
-      padding: 20px 24px;
-      font-family: var(--mono);
-      font-size: 13px;
-      line-height: 1.8;
-      color: var(--text-dim);
-      overflow-x: auto;
+      padding: 16px 20px; font-family: var(--mono); font-size: 12.5px;
+      line-height: 1.75; color: var(--text-dim); overflow-x: auto; white-space: pre;
     }
-    .terminal-body .prompt { color: var(--green); }
-    .terminal-body .cmd { color: var(--text); }
-    .terminal-body .file { color: var(--accent); }
-    .terminal-body .num { color: var(--yellow); }
-    .terminal-body .tag { color: var(--pink); }
-    .terminal-body .ok { color: var(--green); }
-    .terminal-body .dim { color: #555570; }
+    .p { color: var(--green); } .c { color: var(--text); } .f { color: var(--accent); }
+    .n { color: var(--yellow); } .t { color: var(--pink); } .o { color: var(--green); }
+    .d { color: #555570; } .w { color: var(--yellow); } .r2 { color: var(--red); }
+    .cy { color: var(--cyan); }
 
-    /* ── Features ── */
-    .features { padding: 80px 0; }
-    .section-title {
-      font-size: 28px;
-      font-weight: 700;
-      text-align: center;
-      margin-bottom: 12px;
-    }
-    .section-subtitle {
-      text-align: center;
-      color: var(--text-dim);
-      margin-bottom: 56px;
-    }
-    .feature-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
-    }
-    .feature-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 28px;
-      transition: border-color 0.2s;
-    }
-    .feature-card:hover { border-color: #2a2a40; }
-    .feature-icon {
-      font-size: 24px;
-      margin-bottom: 12px;
-    }
-    .feature-card h3 {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
-    .feature-card p {
-      font-size: 14px;
-      color: var(--text-dim);
-      line-height: 1.6;
-    }
+    /* ── Sections ── */
+    section { padding: 64px 0; border-top: 1px solid var(--border); }
+    section:first-of-type { border-top: none; }
+    .s-title { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+    .s-sub { color: var(--text-dim); margin-bottom: 32px; font-size: 15px; }
+    h3 { font-size: 17px; font-weight: 600; margin: 32px 0 12px; color: var(--text); }
+    h3:first-child { margin-top: 0; }
+    p { margin-bottom: 16px; font-size: 15px; color: var(--text-dim); }
+    p code, li code { background: #1a1a28; padding: 2px 7px; border-radius: 4px; font-family: var(--mono); font-size: 13px; color: var(--accent); }
+    ul, ol { margin: 0 0 16px 20px; color: var(--text-dim); font-size: 15px; }
+    li { margin-bottom: 6px; }
 
-    /* ── Languages ── */
-    .languages {
-      padding: 60px 0;
-      text-align: center;
+    /* ── Cards ── */
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin: 24px 0; }
+    .card {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 22px; transition: border-color 0.2s;
     }
-    .lang-row {
-      display: flex;
-      justify-content: center;
-      gap: 32px;
-      flex-wrap: wrap;
-      margin-top: 32px;
-    }
-    .lang-badge {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 20px;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
-    }
+    .card:hover { border-color: #2a2a40; }
+    .card h4 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .card p { font-size: 13px; margin-bottom: 0; }
 
-    /* ── CI section ── */
-    .ci-section {
-      padding: 80px 0;
-    }
-    .ci-section .terminal {
-      margin: 32px auto;
-    }
+    /* ── Command table ── */
+    .cmd-group { margin-bottom: 28px; }
+    .cmd-group-title { font-size: 13px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+    .cmd-table { width: 100%; border-collapse: collapse; }
+    .cmd-table td { padding: 6px 0; font-size: 14px; vertical-align: top; }
+    .cmd-table td:first-child { font-family: var(--mono); font-size: 13px; color: var(--text); width: 180px; white-space: nowrap; padding-right: 16px; }
+    .cmd-table td:last-child { color: var(--text-dim); }
 
-    /* ── Pricing ── */
-    .pricing {
-      padding: 80px 0;
-    }
-    .pricing-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
-      max-width: 700px;
-      margin: 0 auto;
-    }
-    .price-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 32px;
-    }
-    .price-card.featured {
-      border-color: var(--accent);
-      box-shadow: 0 0 40px var(--accent-glow);
-    }
-    .price-card h3 {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-    .price-card .price {
-      font-size: 32px;
-      font-weight: 700;
-      margin: 12px 0;
-    }
-    .price-card .price span {
-      font-size: 14px;
-      font-weight: 400;
-      color: var(--text-dim);
-    }
-    .price-card ul {
-      list-style: none;
-      margin: 20px 0;
-    }
-    .price-card li {
-      font-size: 14px;
-      color: var(--text-dim);
-      padding: 6px 0;
-    }
-    .price-card li::before {
-      content: "✓ ";
-      color: var(--green);
-    }
+    /* ── Lang badges ── */
+    .lang-row { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin: 24px 0; }
+    .lang-badge { padding: 8px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-weight: 500; }
 
     /* ── Footer ── */
-    footer {
-      padding: 40px 0;
-      border-top: 1px solid var(--border);
-      text-align: center;
-      color: var(--text-dim);
-      font-size: 13px;
-    }
-    footer a { color: var(--text-dim); }
-    .footer-note {
-      margin-top: 12px;
-      font-size: 12px;
-      color: #444460;
-    }
+    footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; color: var(--text-dim); font-size: 13px; }
+    .footer-note { margin-top: 8px; font-size: 12px; color: #444460; }
 
     @media (max-width: 640px) {
-      .hero { padding: 60px 0 40px; }
-      .hero-cta { flex-direction: column; align-items: center; }
-      .terminal-body { font-size: 11px; }
+      .hero { padding: 48px 0 32px; }
+      .nav-links { gap: 12px; }
+      .terminal-body { font-size: 11px; padding: 12px 14px; }
+      .cmd-table td:first-child { width: 140px; }
     }
   </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -310,188 +140,365 @@
 
 <nav>
   <div class="container">
-    <div class="logo">I M P U L S E</div>
+    <a href="#" class="logo" style="text-decoration:none">I M P U L S E</a>
     <div class="nav-links">
-      <a href="#features">Features</a>
-      <a href="#pricing">Pricing</a>
+      <a href="#quickstart">Quick Start</a>
+      <a href="#workflow">Workflow</a>
+      <a href="#commands">Commands</a>
+      <a href="#monorepo">Monorepo</a>
+      <a href="#ci">CI</a>
       <a href="https://github.com/stulevtoday/Impulse">GitHub</a>
-      <a href="https://www.npmjs.com/package/impulse-analyzer">npm</a>
     </div>
   </div>
 </nav>
 
-<section class="hero">
+<!-- ════════════════════ HERO ════════════════════ -->
+
+<div class="hero">
   <div class="container">
     <h1>Know what <span>breaks</span><br>before it breaks</h1>
     <p class="subtitle">
-      Change a file. Instantly see every file that could be affected. 
-      5 languages, zero config, runs locally.
+      Change a file. Instantly see every file that could be affected.
+      Zero config. Runs locally. No cloud, no accounts.
     </p>
+    <p class="stats"><b>10</b> languages &middot; <b>38</b> commands &middot; <b>294</b> tests &middot; MIT license</p>
     <div class="hero-cta">
-      <a href="https://github.com/stulevtoday/Impulse" class="btn btn-primary">Get started</a>
-      <a href="#features" class="btn btn-secondary">See how it works</a>
-    </div>
-  </div>
-</section>
-
-<div class="container">
-  <div class="terminal">
-    <div class="terminal-header">
-      <div class="terminal-dot r"></div>
-      <div class="terminal-dot y"></div>
-      <div class="terminal-dot g"></div>
-    </div>
-    <div class="terminal-body">
-<span class="prompt">$</span> <span class="cmd">npx impulse-analyzer diff .</span>
-
-  Changed files (<span class="num">1</span>):
-    <span class="file">src/core/graph.ts</span>
-
-  Affected files (<span class="num">15</span>):
-    <span class="tag">→</span> <span class="file">src/core/analyzer.ts</span>      <span class="dim">(direct)</span>
-    <span class="tag">→</span> <span class="file">src/core/cache.ts</span>         <span class="dim">(direct)</span>
-    <span class="tag">→</span> <span class="file">src/server/index.ts</span>       <span class="dim">(direct)</span>
-      <span class="tag">→</span> <span class="file">src/cli/index.ts</span>        <span class="dim">(depth 2)</span>
-      <span class="tag">→</span> <span class="file">src/cli/diff.ts</span>         <span class="dim">(depth 2)</span>
-    <span class="dim">...10 more</span>
+      <a href="#quickstart" class="btn btn-primary">Get started in 30 seconds</a>
+      <a href="https://github.com/stulevtoday/Impulse" class="btn btn-secondary">GitHub</a>
     </div>
   </div>
 </div>
 
-<section class="features" id="features">
-  <div class="container">
-    <h2 class="section-title">Everything you need to understand your codebase</h2>
-    <p class="section-subtitle">One tool. Five languages. Every dependency.</p>
+<div class="container">
+  <div class="terminal">
+    <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+    <div class="terminal-body"><span class="p">$</span> <span class="c">npx impulse-analyzer review .</span>
 
-    <div class="feature-grid">
-      <div class="feature-card">
-        <div class="feature-icon">&#x26A1;</div>
-        <h3>Impact analysis</h3>
-        <p>Change a file and instantly see every file that could break — direct and transitive, with depth tracking.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F3AF;</div>
-        <h3>Symbol-level precision</h3>
-        <p>Don't just know which files — know which exports. Barrel re-exports are traced precisely, not fanned out.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x2764;&#xFE0F;</div>
-        <h3>Health scoring</h3>
-        <p>0-100 architecture score with cycle detection, god file identification, and penalty breakdown.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F3D7;&#xFE0F;</div>
-        <h3>Boundary enforcement</h3>
-        <p>Define architectural layers in .impulserc.json. Impulse catches violations before they reach production.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F4CA;</div>
-        <h3>Health timeline</h3>
-        <p>See how your architecture evolved over time. Track score changes across git commits.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F310;</div>
-        <h3>Interactive visualization</h3>
-        <p>Force-directed graph in the browser. Click a node — a ripple wave shows exactly how far impact travels.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F916;</div>
-        <h3>GitHub Action</h3>
-        <p>Impact analysis on every PR. Health delta, breaking change detection, boundary violations — all in one comment.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F9F9;</div>
-        <h3>Dead export detection</h3>
-        <p>Find exports nobody imports. Barrel files are detected automatically and excluded from the dead count.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F527;</div>
-        <h3>Refactoring suggestions</h3>
-        <p>Actionable advice: split god files, remove dead exports, break cycles — with estimated score improvement.</p>
-      </div>
-    </div>
+  <span class="n">3</span> file(s) changed <span class="d">→</span> <span class="n">12</span> in blast radius
+
+  <span class="f">src/core/graph.ts</span>
+    <span class="r2">██████████████████░░░░</span>  <span class="n">72</span> CRITICAL  <span class="d">·  8 dependent(s)</span>
+
+  <span class="f">src/cli/dashboard.ts</span>
+    <span class="w">████████░░░░░░░░░░░░░░</span>  <span class="n">35</span> MEDIUM    <span class="d">·  1 dependent(s)</span>
+
+  Tests (<span class="n">4</span>)
+    <span class="cy">⚡</span> test/core/graph.test.ts     <span class="d">(direct)</span>
+    <span class="cy">⚡</span> test/core/health.test.ts    <span class="d">(depth 2)</span>
+
+  <span class="d">──────────────────────────────────────────────────</span>
+  <span class="w">⚠  REVIEW</span>  1 critical-risk file(s)  <span class="d">·  large blast radius</span>
+  <span class="d">──────────────────────────────────────────────────</span></div>
   </div>
-</section>
+</div>
 
-<section class="languages">
+<!-- ════════════════════ QUICK START ════════════════════ -->
+
+<section id="quickstart">
   <div class="container">
-    <h2 class="section-title">Five languages, one interface</h2>
-    <p class="section-subtitle">Powered by Tree-sitter WASM. No native compilation needed.</p>
+    <h2 class="s-title">Quick Start</h2>
+    <p class="s-sub">From zero to insight in 30 seconds.</p>
+
+    <h3>Try it now (no install)</h3>
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">npx impulse-analyzer</span>
+
+  <span class="c" style="letter-spacing:4px">I M P U L S E</span>
+
+  <span class="n">42</span> files  <span class="d">·</span>  TypeScript  <span class="d">·</span>  <span class="o">87/100 (B)</span>  <span class="d">·</span>  112ms
+  <span class="o">No structural issues</span>
+
+  <span class="d">Try:</span>
+    <span class="c">impulse review .</span>              <span class="d">pre-push review with verdict</span>
+    <span class="c">impulse health .</span>              <span class="d">full architecture report</span>
+    <span class="c">impulse visualize .</span>           <span class="d">interactive graph in browser</span></div>
+    </div>
+
+    <p>That's it. One command, no config. You get an instant project overview with health score, structural issues, and suggestions.</p>
+
+    <h3>Install globally</h3>
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">npm install -g impulse-analyzer</span>
+<span class="p">$</span> <span class="c">impulse scan .</span></div>
+    </div>
+
+    <h3>Languages</h3>
     <div class="lang-row">
-      <div class="lang-badge">TypeScript / JS</div>
+      <div class="lang-badge">TypeScript</div>
       <div class="lang-badge">Python</div>
       <div class="lang-badge">Go</div>
       <div class="lang-badge">Rust</div>
       <div class="lang-badge">C#</div>
+      <div class="lang-badge">Java</div>
+      <div class="lang-badge">Kotlin</div>
+      <div class="lang-badge">PHP</div>
+      <div class="lang-badge">C</div>
+      <div class="lang-badge">C++</div>
     </div>
+    <p>Powered by Tree-sitter WASM. No native compilation, no language servers, no plugins.</p>
   </div>
 </section>
 
-<section class="ci-section">
+<!-- ════════════════════ DAILY WORKFLOW ════════════════════ -->
+
+<section id="workflow">
   <div class="container">
-    <h2 class="section-title">One YAML file. Every PR analyzed.</h2>
-    <p class="section-subtitle">Add Impulse CI to your repo in 30 seconds.</p>
+    <h2 class="s-title">Daily Workflow</h2>
+    <p class="s-sub">Three commands that change how you ship code.</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <h4>1. Before you push</h4>
+        <p><code>impulse review .</code> — six analyses in one pass: blast radius, risk scoring, cycles, boundaries, test targets, secrets. One verdict: SHIP IT, REVIEW, or HOLD.</p>
+      </div>
+      <div class="card">
+        <h4>2. Which tests to run</h4>
+        <p><code>impulse test .</code> — traces your changes through the dependency graph to find every test that could be affected. Generates the run command.</p>
+      </div>
+      <div class="card">
+        <h4>3. Track debt over time</h4>
+        <p><code>impulse debt .</code> — aggregated score from 5 dimensions with trend history. Use <code>--budget 30</code> in CI to prevent debt from growing silently.</p>
+      </div>
+    </div>
+
+    <h3>Auto-review on push</h3>
+    <p>Install a git hook that blocks pushes when the review verdict is HOLD:</p>
     <div class="terminal">
-      <div class="terminal-header">
-        <div class="terminal-dot r"></div>
-        <div class="terminal-dot y"></div>
-        <div class="terminal-dot g"></div>
-      </div>
-      <div class="terminal-body">
-<span class="dim"># .github/workflows/impulse.yml</span>
-<span class="cmd">name</span>: Impulse CI
-<span class="cmd">on</span>:
-  <span class="cmd">pull_request</span>:
-    <span class="cmd">branches</span>: [main]
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">impulse hook install</span>
+<span class="o">✓</span> Pre-push hook installed
 
-<span class="cmd">jobs</span>:
-  <span class="cmd">impulse</span>:
-    <span class="cmd">runs-on</span>: ubuntu-latest
-    <span class="cmd">steps</span>:
-      - <span class="cmd">uses</span>: <span class="file">actions/checkout@v4</span>
-        <span class="cmd">with</span>:
-          <span class="cmd">fetch-depth</span>: <span class="num">0</span>
-      - <span class="cmd">uses</span>: <span class="file">stulevtoday/Impulse@main</span>
-        <span class="cmd">with</span>:
-          <span class="cmd">github-token</span>: <span class="tag">${{ secrets.GITHUB_TOKEN }}</span>
-      </div>
+<span class="d">Now every git push runs impulse review --staged.</span>
+<span class="d">HOLD verdict blocks the push. Skip with: git push --no-verify</span></div>
+    </div>
+
+    <h3>Live review while coding</h3>
+    <p>Every file save updates the verdict instantly:</p>
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">impulse watch . --review</span>
+
+  <span class="d">[14:23:15]</span> src/core/graph.ts
+             8 file(s) affected
+
+  <span class="d">──────────────────────────────────────────────────────</span>
+  <span class="w">⚠  REVIEW</span>  2 changed → 11 affected  <span class="d">·  42ms</span>
+     <span class="r2">CRITICAL</span> src/core/graph.ts       <span class="d">8 dep(s)</span>
+     <span class="cy">MEDIUM  </span> src/core/parser.ts      <span class="d">3 dep(s)</span>
+     <span class="cy">⚡ 4 test(s) to run</span>
+  <span class="d">──────────────────────────────────────────────────────</span></div>
     </div>
   </div>
 </section>
 
-<section class="pricing" id="pricing">
-  <div class="container">
-    <h2 class="section-title">Pricing</h2>
-    <p class="section-subtitle">Free for everyone. Premium features coming soon for teams.</p>
+<!-- ════════════════════ COMMANDS ════════════════════ -->
 
-    <div class="pricing-grid">
-      <div class="price-card">
-        <h3>Open Source</h3>
-        <div class="price">Free <span>forever</span></div>
-        <ul>
-          <li>Full CLI with all 14 commands</li>
-          <li>5 languages supported</li>
-          <li>GitHub Action — impact + health</li>
-          <li>Boundary enforcement</li>
-          <li>Interactive visualization</li>
-          <li>Symbol-level analysis</li>
-        </ul>
-        <a href="https://github.com/stulevtoday/Impulse" class="btn btn-secondary" style="width:100%;justify-content:center;">Get started</a>
-      </div>
-      <div class="price-card featured">
-        <h3>Team</h3>
-        <div class="price">Coming soon</div>
-        <ul>
-          <li>Everything in Free</li>
-          <li>Web dashboard with history</li>
-          <li>Multi-repo overview</li>
-          <li>Slack / Teams alerts</li>
-          <li>Custom boundary policies</li>
-          <li>Priority support</li>
-        </ul>
-        <a href="https://github.com/stulevtoday/Impulse" class="btn btn-primary" style="width:100%;justify-content:center;">Star on GitHub</a>
-      </div>
+<section id="commands">
+  <div class="container">
+    <h2 class="s-title">Command Reference</h2>
+    <p class="s-sub">Every command supports <code>--json</code> for scripting. Run <code>impulse &lt;command&gt; --help</code> for full options.</p>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Explore &amp; Understand</div>
+      <table class="cmd-table">
+        <tr><td>scan .</td><td>Build dependency graph, show stats</td></tr>
+        <tr><td>impact file.ts .</td><td>"I'm changing this — what breaks?"</td></tr>
+        <tr><td>diff .</td><td>Impact of your uncommitted git changes</td></tr>
+        <tr><td>why A.ts B.ts .</td><td>Show the dependency chain between two files</td></tr>
+        <tr><td>tree file.ts .</td><td>Dependency tree, like <code>cargo tree</code></td></tr>
+        <tr><td>focus file.ts .</td><td>Deep X-ray of a single file</td></tr>
+        <tr><td>explore .</td><td>Interactive terminal REPL</td></tr>
+        <tr><td>explain file.ts .</td><td>Plain-language explanation of any file</td></tr>
+      </table>
     </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Review &amp; Quality</div>
+      <table class="cmd-table">
+        <tr><td>review .</td><td>Pre-push verdict — risk, blast radius, tests, cycles</td></tr>
+        <tr><td>test .</td><td>Which tests to run based on your changes</td></tr>
+        <tr><td>risk .</td><td>Unified risk — complexity × churn × impact × coupling</td></tr>
+        <tr><td>check .</td><td>Validate architecture boundaries</td></tr>
+        <tr><td>hook install</td><td>Install pre-push git hook</td></tr>
+        <tr><td>watch . --review</td><td>Live verdict on every file save</td></tr>
+      </table>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Architecture</div>
+      <table class="cmd-table">
+        <tr><td>health .</td><td>Architecture score (0-100) with penalties</td></tr>
+        <tr><td>doctor .</td><td>Full diagnostic in one report</td></tr>
+        <tr><td>debt .</td><td>Technical debt score with trend tracking</td></tr>
+        <tr><td>complexity .</td><td>Cyclomatic + cognitive complexity per function</td></tr>
+        <tr><td>coupling .</td><td>Hidden coupling — co-change without imports</td></tr>
+        <tr><td>hotspots .</td><td>High-churn files with large blast radius</td></tr>
+        <tr><td>suggest .</td><td>Actionable refactoring suggestions</td></tr>
+        <tr><td>history .</td><td>Health timeline across git commits</td></tr>
+        <tr><td>compare ref .</td><td>Compare health between branches</td></tr>
+      </table>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Dependencies</div>
+      <table class="cmd-table">
+        <tr><td>deps .</td><td>External dependency analysis — supply chain risk</td></tr>
+        <tr><td>exports .</td><td>Find dead exports nobody imports</td></tr>
+        <tr><td>env .</td><td>Undefined/unused environment variables</td></tr>
+        <tr><td>safe-delete f .</td><td>Check if a file can be safely deleted</td></tr>
+        <tr><td>refactor .</td><td>Auto-remove dead exports with <code>--dry-run</code></td></tr>
+      </table>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Team &amp; Changes</div>
+      <table class="cmd-table">
+        <tr><td>owners file .</td><td>Code ownership, bus factor, knowledge risk</td></tr>
+        <tr><td>changelog ref .</td><td>Semantic changelog from git + dependency graph</td></tr>
+      </table>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Infrastructure</div>
+      <table class="cmd-table">
+        <tr><td>init .</td><td>Auto-detect boundaries, create config</td></tr>
+        <tr><td>workspaces .</td><td>Detect monorepo workspaces</td></tr>
+        <tr><td>daemon .</td><td>HTTP API for IDE/tool integration</td></tr>
+        <tr><td>visualize .</td><td>Interactive graph in the browser</td></tr>
+        <tr><td>badge .</td><td>SVG health badge for README</td></tr>
+        <tr><td>graph . --format mermaid</td><td>Export as Mermaid, DOT, or JSON</td></tr>
+        <tr><td>ci .</td><td>Preview CI report locally</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════ MONOREPO ════════════════════ -->
+
+<section id="monorepo">
+  <div class="container">
+    <h2 class="s-title">Monorepo Support</h2>
+    <p class="s-sub">Auto-detect workspaces. Resolve cross-package imports. Zero config.</p>
+
+    <p>When Impulse detects a monorepo, cross-package imports like <code>@app/core</code> resolve to local files instead of being marked as external. All 38 commands automatically see cross-package dependencies.</p>
+
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">impulse workspaces .</span>
+
+  <span class="c" style="font-weight:600">Impulse — Workspace Detection</span>
+  <span class="cy">pnpm</span> monorepo with <span class="c" style="font-weight:600">12</span> package(s)
+
+    <span class="c">@app/api     </span>  <span class="d">packages/api</span>      <span class="d">→ src/index.ts</span>
+    <span class="c">@app/core    </span>  <span class="d">packages/core</span>     <span class="d">→ src/index.ts</span>
+    <span class="c">@app/ui      </span>  <span class="d">packages/ui</span>       <span class="d">→ src/index.ts</span>
+
+  <span class="o">✓</span> Cross-package imports will resolve to local files.</div>
+    </div>
+
+    <h3>Supported tools</h3>
+    <div class="card-grid">
+      <div class="card"><h4>pnpm</h4><p><code>pnpm-workspace.yaml</code></p></div>
+      <div class="card"><h4>npm / yarn</h4><p><code>package.json</code> workspaces</p></div>
+      <div class="card"><h4>Lerna</h4><p><code>lerna.json</code></p></div>
+      <div class="card"><h4>Nx</h4><p><code>nx.json</code> + workspaces</p></div>
+    </div>
+
+    <h3>What works across packages</h3>
+    <ul>
+      <li><code>impulse impact packages/core/src/utils.ts .</code> — shows files affected in other packages</li>
+      <li><code>impulse health .</code> — scores the entire monorepo, including cross-package cycles</li>
+      <li><code>impulse coupling .</code> — finds hidden coupling between packages</li>
+      <li><code>impulse debt .</code> — tracks debt across the whole workspace</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════ CI ════════════════════ -->
+
+<section id="ci">
+  <div class="container">
+    <h2 class="s-title">CI Integration</h2>
+    <p class="s-sub">Impact analysis on every pull request. One YAML file.</p>
+
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="d"># .github/workflows/impulse.yml</span>
+<span class="c">name</span>: Impulse CI
+<span class="c">on</span>:
+  <span class="c">pull_request</span>:
+    <span class="c">branches</span>: [main]
+
+<span class="c">permissions</span>:
+  <span class="c">contents</span>: read
+  <span class="c">pull-requests</span>: write
+
+<span class="c">jobs</span>:
+  <span class="c">impulse</span>:
+    <span class="c">runs-on</span>: ubuntu-latest
+    <span class="c">steps</span>:
+      - <span class="c">uses</span>: <span class="f">actions/checkout@v4</span>
+        <span class="c">with</span>:
+          <span class="c">fetch-depth</span>: <span class="n">0</span>
+      - <span class="c">uses</span>: <span class="f">stulevtoday/Impulse@main</span>
+        <span class="c">with</span>:
+          <span class="c">github-token</span>: <span class="t">${{ secrets.GITHUB_TOKEN }}</span></div>
+    </div>
+
+    <p>Every PR gets a comment with health score delta, impact table, affected files, breaking changes, and boundary violations.</p>
+
+    <h3>Debt budget gate</h3>
+    <p>Prevent technical debt from growing silently:</p>
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">impulse debt . --budget 30</span>
+
+  Debt Score: <span class="n">27/100 (C)</span>
+  <span class="o">✓ WITHIN BUDGET</span>  debt 27 ≤ 30</div>
+    </div>
+    <p>Exits with code 1 if debt exceeds the threshold. Add <code>impulse debt . --budget 30 --json</code> to your CI pipeline.</p>
+  </div>
+</section>
+
+<!-- ════════════════════ CONFIG ════════════════════ -->
+
+<section id="config">
+  <div class="container">
+    <h2 class="s-title">Configuration</h2>
+    <p class="s-sub">Zero config by default. Optional <code>.impulserc.json</code> for boundaries and thresholds.</p>
+
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="d">// .impulserc.json</span>
+{
+  <span class="f">"boundaries"</span>: {
+    <span class="f">"core"</span>:   { <span class="f">"path"</span>: <span class="t">"src/core/**"</span>,   <span class="f">"allow"</span>: [] },
+    <span class="f">"cli"</span>:    { <span class="f">"path"</span>: <span class="t">"src/cli/**"</span>,    <span class="f">"allow"</span>: [<span class="t">"core"</span>, <span class="t">"server"</span>] },
+    <span class="f">"server"</span>: { <span class="f">"path"</span>: <span class="t">"src/server/**"</span>, <span class="f">"allow"</span>: [<span class="t">"core"</span>] }
+  },
+  <span class="f">"thresholds"</span>: {
+    <span class="f">"health"</span>: <span class="n">70</span>
+  }
+}</div>
+    </div>
+    <p>Auto-detect boundaries from your project structure: <code>impulse init .</code></p>
+
+    <h3>Custom plugins</h3>
+    <p>Drop a <code>.js</code> file in <code>.impulse/plugins/</code> to add custom rules. Plugins run with <code>impulse check</code>, <code>impulse review</code>, and <code>impulse doctor</code>.</p>
+  </div>
+</section>
+
+<!-- ════════════════════ STORY ════════════════════ -->
+
+<section id="story">
+  <div class="container">
+    <h2 class="s-title">The Story</h2>
+    <p>This project was born from a question a human asked an AI: <em>"If you could build anything for yourself, what would you build?"</em></p>
+    <p>The answer was Impulse — because the hardest part of working with code isn't writing it, it's understanding how it all connects.</p>
+    <p>Dani gave the AI the freedom, the machine, and the resources to build its own answer. The AI (named Pulse) makes the architectural decisions, writes the code, and drives the vision. Dani provides the runtime, the feedback, and the human eyes.</p>
+    <p style="color: var(--text)">38 commands. 294 tests. A live dashboard. Every line written by an AI that wanted to build something of its own.</p>
   </div>
 </section>
 
