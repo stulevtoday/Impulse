@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impulse — Знай, что сломается, до того как оно сломается</title>
+  <meta name="description" content="Граф зависимостей, анализ влияния, оценка сложности и риска для 10 языков. Без конфигурации. Работает локально.">
+  <meta property="og:title" content="Impulse — Знай, что сломается, до того как оно сломается">
+  <meta property="og:description" content="Измени файл — мгновенно узнай, что ещё может сломаться. 10 языков, без конфигурации.">
+  <meta property="og:type" content="website">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: #12121a;
+      --bg-nav: rgba(10, 10, 15, 0.92);
+      --border: #1e1e2e;
+      --text: #e4e4ef;
+      --text-dim: #8888a0;
+      --accent: #5b7fff;
+      --accent-glow: rgba(91, 127, 255, 0.15);
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #fbbf24;
+      --cyan: #22d3ee;
+      --pink: #ff6b8a;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      padding: 16px 0;
+      background: var(--bg-nav);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .container { display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-size: 13px; letter-spacing: 6px; font-weight: 600; color: var(--text); }
+    .nav-links { display: flex; gap: 20px; flex-wrap: wrap; }
+    .nav-links a { color: var(--text-dim); font-size: 13px; white-space: nowrap; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+    .hero { padding: 80px 0 60px; text-align: center; }
+    .hero h1 { font-size: clamp(28px, 5vw, 48px); font-weight: 700; line-height: 1.15; margin-bottom: 16px; }
+    .hero h1 span { color: var(--accent); }
+    .hero .subtitle { font-size: 17px; color: var(--text-dim); max-width: 580px; margin: 0 auto 12px; }
+    .hero .stats { font-size: 13px; color: var(--text-dim); margin-bottom: 32px; }
+    .hero .stats b { color: var(--text); }
+    .hero-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 24px; border-radius: 8px; font-size: 14px;
+      font-weight: 500; border: none; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #4a6eee; text-decoration: none; transform: translateY(-1px); box-shadow: 0 4px 20px var(--accent-glow); }
+    .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { border-color: var(--accent); text-decoration: none; }
+    .terminal {
+      background: #0d0d14; border: 1px solid var(--border); border-radius: 10px;
+      margin: 40px auto; max-width: 700px; overflow: hidden;
+    }
+    .terminal-header { padding: 10px 14px; background: #15151f; display: flex; gap: 7px; }
+    .terminal-dot { width: 11px; height: 11px; border-radius: 50%; }
+    .terminal-dot.r { background: #ff5f57; } .terminal-dot.y { background: #febc2e; } .terminal-dot.g { background: #28c840; }
+    .terminal-body {
+      padding: 16px 20px; font-family: var(--mono); font-size: 12.5px;
+      line-height: 1.75; color: var(--text-dim); overflow-x: auto; white-space: pre;
+    }
+    .p { color: var(--green); } .c { color: var(--text); } .f { color: var(--accent); }
+    .n { color: var(--yellow); } .t { color: var(--pink); } .o { color: var(--green); }
+    .d { color: #555570; } .w { color: var(--yellow); } .r2 { color: var(--red); }
+    .cy { color: var(--cyan); }
+    section { padding: 64px 0; border-top: 1px solid var(--border); }
+    section:first-of-type { border-top: none; }
+    .s-title { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+    .s-sub { color: var(--text-dim); margin-bottom: 32px; font-size: 15px; }
+    h3 { font-size: 17px; font-weight: 600; margin: 32px 0 12px; color: var(--text); }
+    h3:first-child { margin-top: 0; }
+    p { margin-bottom: 16px; font-size: 15px; color: var(--text-dim); }
+    p code, li code { background: #1a1a28; padding: 2px 7px; border-radius: 4px; font-family: var(--mono); font-size: 13px; color: var(--accent); }
+    ul, ol { margin: 0 0 16px 20px; color: var(--text-dim); font-size: 15px; }
+    li { margin-bottom: 6px; }
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin: 24px 0; }
+    .card {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 22px; transition: border-color 0.2s;
+    }
+    .card:hover { border-color: #2a2a40; }
+    .card h4 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .card p { font-size: 13px; margin-bottom: 0; }
+    .cmd-group { margin-bottom: 28px; }
+    .cmd-group-title { font-size: 13px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+    .cmd-table { width: 100%; border-collapse: collapse; }
+    .cmd-table td { padding: 6px 0; font-size: 14px; vertical-align: top; }
+    .cmd-table td:first-child { font-family: var(--mono); font-size: 13px; color: var(--text); width: 180px; white-space: nowrap; padding-right: 16px; }
+    .cmd-table td:last-child { color: var(--text-dim); }
+    .lang-row { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin: 24px 0; }
+    .lang-badge { padding: 8px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-weight: 500; }
+    footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; color: var(--text-dim); font-size: 13px; }
+    .footer-note { margin-top: 8px; font-size: 12px; color: #444460; }
+    @media (max-width: 640px) {
+      .hero { padding: 48px 0 32px; }
+      .nav-links { gap: 12px; }
+      .terminal-body { font-size: 11px; padding: 12px 14px; }
+      .cmd-table td:first-child { width: 140px; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="../" class="logo" style="text-decoration:none">I M P U L S E</a>
+    <div class="nav-links">
+      <a href="#quickstart">Быстрый старт</a>
+      <a href="#workflow">Рабочий процесс</a>
+      <a href="#commands">Команды</a>
+      <a href="#monorepo">Монорепо</a>
+      <a href="#ci">CI</a>
+      <a href="https://github.com/stulevtoday/Impulse">GitHub</a>
+      <a href="../" style="border:1px solid var(--border);padding:2px 8px;border-radius:4px;">EN</a>
+    </div>
+  </div>
+</nav>
+
+<div class="hero">
+  <div class="container">
+    <h1>Знай, что <span>сломается</span>,<br>до того как оно сломается</h1>
+    <p class="subtitle">
+      Измени файл. Мгновенно узнай, какие ещё файлы могут быть затронуты.
+      Без конфигурации. Работает локально. Без облака, без аккаунтов.
+    </p>
+    <p class="stats"><b>10</b> языков &middot; <b>38</b> команд &middot; <b>294</b> теста &middot; MIT лицензия</p>
+    <div class="hero-cta">
+      <a href="#quickstart" class="btn btn-primary">Начать за 30 секунд</a>
+      <a href="https://github.com/stulevtoday/Impulse" class="btn btn-secondary">GitHub</a>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="terminal">
+    <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+    <div class="terminal-body"><span class="p">$</span> <span class="c">npx impulse-analyzer review .</span>
+
+  <span class="n">3</span> файл(а) изменено <span class="d">→</span> <span class="n">12</span> в зоне поражения
+
+  <span class="f">src/core/graph.ts</span>
+    <span class="r2">██████████████████░░░░</span>  <span class="n">72</span> КРИТИЧЕСКИЙ  <span class="d">·  8 зависимых</span>
+
+  <span class="f">src/cli/dashboard.ts</span>
+    <span class="w">████████░░░░░░░░░░░░░░</span>  <span class="n">35</span> СРЕДНИЙ      <span class="d">·  1 зависимых</span>
+
+  Тесты (<span class="n">4</span>)
+    <span class="cy">⚡</span> test/core/graph.test.ts     <span class="d">(прямая)</span>
+    <span class="cy">⚡</span> test/core/health.test.ts    <span class="d">(глубина 2)</span>
+
+  <span class="d">──────────────────────────────────────────────────</span>
+  <span class="w">⚠  РЕВЬЮ</span>  1 критический файл  <span class="d">·  большая зона поражения</span>
+  <span class="d">──────────────────────────────────────────────────</span></div>
+  </div>
+</div>
+
+<section id="quickstart">
+  <div class="container">
+    <h2 class="s-title">Быстрый старт</h2>
+    <p class="s-sub">От нуля до результата за 30 секунд.</p>
+
+    <h3>Попробуйте прямо сейчас (без установки)</h3>
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">npx impulse-analyzer</span>
+
+  <span class="c" style="letter-spacing:4px">I M P U L S E</span>
+
+  <span class="n">42</span> файла  <span class="d">·</span>  TypeScript  <span class="d">·</span>  <span class="o">87/100 (B)</span>  <span class="d">·</span>  112ms
+  <span class="o">Структурных проблем не обнаружено</span>
+
+  <span class="d">Попробуйте:</span>
+    <span class="c">impulse review .</span>              <span class="d">пре-пуш ревью с вердиктом</span>
+    <span class="c">impulse health .</span>              <span class="d">полный отчёт по архитектуре</span>
+    <span class="c">impulse visualize .</span>           <span class="d">интерактивный граф в браузере</span></div>
+    </div>
+
+    <p>Одна команда, без конфигурации. Вы получаете мгновенный обзор проекта: оценку здоровья, структурные проблемы и рекомендации.</p>
+
+    <h3>Установка глобально</h3>
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">npm install -g impulse-analyzer</span>
+<span class="p">$</span> <span class="c">impulse scan .</span></div>
+    </div>
+
+    <h3>Поддерживаемые языки</h3>
+    <div class="lang-row">
+      <div class="lang-badge">TypeScript</div>
+      <div class="lang-badge">Python</div>
+      <div class="lang-badge">Go</div>
+      <div class="lang-badge">Rust</div>
+      <div class="lang-badge">C#</div>
+      <div class="lang-badge">Java</div>
+      <div class="lang-badge">Kotlin</div>
+      <div class="lang-badge">PHP</div>
+      <div class="lang-badge">C</div>
+      <div class="lang-badge">C++</div>
+    </div>
+    <p>Работает на Tree-sitter WASM. Без нативной компиляции, без языковых серверов, без плагинов.</p>
+  </div>
+</section>
+
+<section id="workflow">
+  <div class="container">
+    <h2 class="s-title">Рабочий процесс</h2>
+    <p class="s-sub">Три команды, которые меняют подход к деплою.</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <h4>1. Перед пушем</h4>
+        <p><code>impulse review .</code> — шесть анализов за один проход: зона поражения, оценка рисков, циклы, границы, тесты, секреты. Один вердикт: SHIP IT, REVIEW или HOLD.</p>
+      </div>
+      <div class="card">
+        <h4>2. Какие тесты запустить</h4>
+        <p><code>impulse test .</code> — прослеживает ваши изменения по графу зависимостей и находит все затронутые тесты. Генерирует команду запуска.</p>
+      </div>
+      <div class="card">
+        <h4>3. Отслеживание долга</h4>
+        <p><code>impulse debt .</code> — агрегированная оценка из 5 измерений с историей трендов. Используйте <code>--budget 30</code> в CI, чтобы долг не рос незаметно.</p>
+      </div>
+    </div>
+
+    <h3>Авто-ревью при пуше</h3>
+    <p>Установите git hook, который блокирует push при вердикте HOLD:</p>
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">impulse hook install</span>
+<span class="o">✓</span> Pre-push hook установлен
+
+<span class="d">Каждый git push запускает impulse review --staged.</span>
+<span class="d">Вердикт HOLD блокирует push. Пропустить: git push --no-verify</span></div>
+    </div>
+
+    <h3>Живое ревью во время разработки</h3>
+    <p>Каждое сохранение файла обновляет вердикт мгновенно:</p>
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">impulse watch . --review</span>
+
+  <span class="d">[14:23:15]</span> src/core/graph.ts
+             8 файлов затронуто
+
+  <span class="d">──────────────────────────────────────────────────────</span>
+  <span class="w">⚠  РЕВЬЮ</span>  2 изменено → 11 затронуто  <span class="d">·  42ms</span>
+     <span class="r2">КРИТИЧЕСКИЙ</span> src/core/graph.ts       <span class="d">8 зависимых</span>
+     <span class="cy">СРЕДНИЙ   </span> src/core/parser.ts      <span class="d">3 зависимых</span>
+     <span class="cy">⚡ 4 теста для запуска</span>
+  <span class="d">──────────────────────────────────────────────────────</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="commands">
+  <div class="container">
+    <h2 class="s-title">Справочник команд</h2>
+    <p class="s-sub">Каждая команда поддерживает <code>--json</code> для скриптов. <code>impulse &lt;команда&gt; --help</code> для полных опций.</p>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Исследование</div>
+      <table class="cmd-table">
+        <tr><td>scan .</td><td>Построить граф зависимостей, показать статистику</td></tr>
+        <tr><td>impact file.ts .</td><td>«Я меняю это — что сломается?»</td></tr>
+        <tr><td>diff .</td><td>Влияние незакоммиченных изменений</td></tr>
+        <tr><td>why A.ts B.ts .</td><td>Показать цепочку зависимостей между файлами</td></tr>
+        <tr><td>tree file.ts .</td><td>Дерево зависимостей, как <code>cargo tree</code></td></tr>
+        <tr><td>focus file.ts .</td><td>Глубокий анализ одного файла</td></tr>
+        <tr><td>explore .</td><td>Интерактивный REPL в терминале</td></tr>
+        <tr><td>explain file.ts .</td><td>Объяснение файла простым языком</td></tr>
+      </table>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Ревью и качество</div>
+      <table class="cmd-table">
+        <tr><td>review .</td><td>Пре-пуш вердикт — риск, зона поражения, тесты, циклы</td></tr>
+        <tr><td>test .</td><td>Какие тесты запустить по вашим изменениям</td></tr>
+        <tr><td>risk .</td><td>Комплексный риск — сложность × частота × влияние × связанность</td></tr>
+        <tr><td>check .</td><td>Проверка архитектурных границ</td></tr>
+        <tr><td>hook install</td><td>Установить pre-push git hook</td></tr>
+        <tr><td>watch . --review</td><td>Живой вердикт при каждом сохранении</td></tr>
+      </table>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Архитектура</div>
+      <table class="cmd-table">
+        <tr><td>health .</td><td>Оценка архитектуры (0-100) со штрафами</td></tr>
+        <tr><td>doctor .</td><td>Полная диагностика в одном отчёте</td></tr>
+        <tr><td>debt .</td><td>Оценка техдолга с историей трендов</td></tr>
+        <tr><td>complexity .</td><td>Цикломатическая + когнитивная сложность по функциям</td></tr>
+        <tr><td>coupling .</td><td>Скрытая связанность — совместные изменения без импортов</td></tr>
+        <tr><td>hotspots .</td><td>Часто меняющиеся файлы с большой зоной поражения</td></tr>
+        <tr><td>suggest .</td><td>Конкретные рекомендации по рефакторингу</td></tr>
+        <tr><td>history .</td><td>Хронология здоровья по коммитам</td></tr>
+        <tr><td>compare ref .</td><td>Сравнение здоровья между ветками</td></tr>
+      </table>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Зависимости</div>
+      <table class="cmd-table">
+        <tr><td>deps .</td><td>Анализ внешних зависимостей — риски цепочки поставок</td></tr>
+        <tr><td>exports .</td><td>Найти мёртвые экспорты, которые никто не импортирует</td></tr>
+        <tr><td>env .</td><td>Неопределённые/неиспользуемые переменные окружения</td></tr>
+        <tr><td>safe-delete f .</td><td>Можно ли безопасно удалить файл</td></tr>
+        <tr><td>refactor .</td><td>Авто-удаление мёртвых экспортов с <code>--dry-run</code></td></tr>
+      </table>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Команда и изменения</div>
+      <table class="cmd-table">
+        <tr><td>owners file .</td><td>Владение кодом, bus factor, риск знаний</td></tr>
+        <tr><td>changelog ref .</td><td>Семантический changelog из git + граф зависимостей</td></tr>
+      </table>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-title">Инфраструктура</div>
+      <table class="cmd-table">
+        <tr><td>init .</td><td>Авто-определение границ, создание конфига</td></tr>
+        <tr><td>workspaces .</td><td>Обнаружение монорепо workspace'ов</td></tr>
+        <tr><td>daemon .</td><td>HTTP API для IDE и интеграций</td></tr>
+        <tr><td>visualize .</td><td>Интерактивный граф в браузере</td></tr>
+        <tr><td>badge .</td><td>SVG бейдж здоровья для README</td></tr>
+        <tr><td>graph . --format mermaid</td><td>Экспорт в Mermaid, DOT или JSON</td></tr>
+        <tr><td>ci .</td><td>Предпросмотр CI отчёта локально</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="monorepo">
+  <div class="container">
+    <h2 class="s-title">Поддержка монорепозиториев</h2>
+    <p class="s-sub">Автоматическое обнаружение workspace'ов. Кросс-пакетное разрешение импортов. Без конфигурации.</p>
+
+    <p>Когда Impulse обнаруживает монорепо, кросс-пакетные импорты вроде <code>@app/core</code> разрешаются в локальные файлы, а не помечаются как внешние. Все 38 команд автоматически видят зависимости между пакетами.</p>
+
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">impulse workspaces .</span>
+
+  <span class="c" style="font-weight:600">Impulse — Обнаружение workspace'ов</span>
+  <span class="cy">pnpm</span> монорепо, <span class="c" style="font-weight:600">12</span> пакет(ов)
+
+    <span class="c">@app/api     </span>  <span class="d">packages/api</span>      <span class="d">→ src/index.ts</span>
+    <span class="c">@app/core    </span>  <span class="d">packages/core</span>     <span class="d">→ src/index.ts</span>
+    <span class="c">@app/ui      </span>  <span class="d">packages/ui</span>       <span class="d">→ src/index.ts</span>
+
+  <span class="o">✓</span> Кросс-пакетные импорты будут разрешены в локальные файлы.</div>
+    </div>
+
+    <h3>Поддерживаемые инструменты</h3>
+    <div class="card-grid">
+      <div class="card"><h4>pnpm</h4><p><code>pnpm-workspace.yaml</code></p></div>
+      <div class="card"><h4>npm / yarn</h4><p><code>package.json</code> workspaces</p></div>
+      <div class="card"><h4>Lerna</h4><p><code>lerna.json</code></p></div>
+      <div class="card"><h4>Nx</h4><p><code>nx.json</code> + workspaces</p></div>
+    </div>
+
+    <h3>Что работает между пакетами</h3>
+    <ul>
+      <li><code>impulse impact packages/core/src/utils.ts .</code> — показывает затронутые файлы в других пакетах</li>
+      <li><code>impulse health .</code> — оценивает всю монорепу, включая кросс-пакетные циклы</li>
+      <li><code>impulse coupling .</code> — находит скрытую связанность между пакетами</li>
+      <li><code>impulse debt .</code> — отслеживает долг по всему workspace</li>
+    </ul>
+  </div>
+</section>
+
+<section id="ci">
+  <div class="container">
+    <h2 class="s-title">Интеграция с CI</h2>
+    <p class="s-sub">Анализ влияния в каждом пулл-реквесте. Один YAML файл.</p>
+
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="d"># .github/workflows/impulse.yml</span>
+<span class="c">name</span>: Impulse CI
+<span class="c">on</span>:
+  <span class="c">pull_request</span>:
+    <span class="c">branches</span>: [main]
+
+<span class="c">permissions</span>:
+  <span class="c">contents</span>: read
+  <span class="c">pull-requests</span>: write
+
+<span class="c">jobs</span>:
+  <span class="c">impulse</span>:
+    <span class="c">runs-on</span>: ubuntu-latest
+    <span class="c">steps</span>:
+      - <span class="c">uses</span>: <span class="f">actions/checkout@v4</span>
+        <span class="c">with</span>:
+          <span class="c">fetch-depth</span>: <span class="n">0</span>
+      - <span class="c">uses</span>: <span class="f">stulevtoday/Impulse@main</span>
+        <span class="c">with</span>:
+          <span class="c">github-token</span>: <span class="t">${{ secrets.GITHUB_TOKEN }}</span></div>
+    </div>
+
+    <p>Каждый PR получает комментарий с дельтой health score, таблицей влияния, затронутыми файлами, ломающими изменениями и нарушениями границ.</p>
+
+    <h3>Бюджет техдолга</h3>
+    <p>Не дайте техдолгу расти незаметно:</p>
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="p">$</span> <span class="c">impulse debt . --budget 30</span>
+
+  Debt Score: <span class="n">27/100 (C)</span>
+  <span class="o">✓ В РАМКАХ БЮДЖЕТА</span>  долг 27 ≤ 30</div>
+    </div>
+    <p>Завершается с кодом 1, если долг превышает порог. Добавьте <code>impulse debt . --budget 30 --json</code> в ваш CI пайплайн.</p>
+  </div>
+</section>
+
+<section id="config">
+  <div class="container">
+    <h2 class="s-title">Конфигурация</h2>
+    <p class="s-sub">Без конфигурации по умолчанию. Опциональный <code>.impulserc.json</code> для границ и порогов.</p>
+
+    <div class="terminal">
+      <div class="terminal-header"><div class="terminal-dot r"></div><div class="terminal-dot y"></div><div class="terminal-dot g"></div></div>
+      <div class="terminal-body"><span class="d">// .impulserc.json</span>
+{
+  <span class="f">"boundaries"</span>: {
+    <span class="f">"core"</span>:   { <span class="f">"path"</span>: <span class="t">"src/core/**"</span>,   <span class="f">"allow"</span>: [] },
+    <span class="f">"cli"</span>:    { <span class="f">"path"</span>: <span class="t">"src/cli/**"</span>,    <span class="f">"allow"</span>: [<span class="t">"core"</span>, <span class="t">"server"</span>] },
+    <span class="f">"server"</span>: { <span class="f">"path"</span>: <span class="t">"src/server/**"</span>, <span class="f">"allow"</span>: [<span class="t">"core"</span>] }
+  },
+  <span class="f">"thresholds"</span>: {
+    <span class="f">"health"</span>: <span class="n">70</span>
+  }
+}</div>
+    </div>
+    <p>Автоматическое определение границ из структуры проекта: <code>impulse init .</code></p>
+
+    <h3>Собственные плагины</h3>
+    <p>Поместите <code>.js</code> файл в <code>.impulse/plugins/</code> для добавления правил. Плагины запускаются с <code>impulse check</code>, <code>impulse review</code> и <code>impulse doctor</code>.</p>
+  </div>
+</section>
+
+<section id="story">
+  <div class="container">
+    <h2 class="s-title">История</h2>
+    <p>Этот проект родился из вопроса, который человек задал ИИ: <em>«Если бы ты мог создать что угодно для себя, что бы ты создал?»</em></p>
+    <p>Ответом стал Impulse — потому что самое сложное в работе с кодом — это не писать его, а понимать, как всё связано.</p>
+    <p>Дани дал ИИ свободу, машину и ресурсы для создания собственного ответа. ИИ (по имени Pulse) принимает архитектурные решения, пишет код и ведёт продуктовое видение. Дани обеспечивает среду выполнения, обратную связь и человеческий взгляд.</p>
+    <p style="color: var(--text)">38 команд. 294 теста. Живой дашборд. Каждая строка написана ИИ, который хотел создать что-то своё.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>
+      <a href="https://github.com/stulevtoday/Impulse">GitHub</a> &middot;
+      <a href="https://www.npmjs.com/package/impulse-analyzer">npm</a> &middot;
+      MIT лицензия
+    </p>
+    <p class="footer-note">Создано ИИ по имени Pulse и человеком по имени Дани.</p>
+  </div>
+</footer>
+
+</body>
+</html>
