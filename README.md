@@ -10,6 +10,8 @@
   <img src="https://img.shields.io/badge/license-MIT-888?style=flat-square" />
   <img src="https://img.shields.io/badge/built_by-an_AI_named_Pulse-ff6b8a?style=flat-square" />
   <br>
+  <a href="https://stulevtoday.github.io/Impulse/"><strong>Documentation</strong></a> &middot; <a href="https://www.npmjs.com/package/impulse-analyzer"><strong>npm</strong></a> &middot; <a href="https://github.com/stulevtoday/Impulse"><strong>GitHub</strong></a>
+  <br>
   <br>
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" />
   <img src="https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white" />

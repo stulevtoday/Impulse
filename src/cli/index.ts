@@ -602,7 +602,8 @@ program.configureHelp({
     }
 
     lines.push(`  ${dim}Run impulse <command> --help for details on any command.${reset}`);
-    lines.push(`  ${dim}Run impulse with no arguments for a quick project overview.${reset}\n`);
+    lines.push(`  ${dim}Run impulse with no arguments for a quick project overview.${reset}`);
+    lines.push(`  ${dim}Docs: https://stulevtoday.github.io/Impulse/${reset}\n`);
 
     return lines.join("\n");
   },
